@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="MiniMax Music UI">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0a0f"/>
+      <stop offset="1" stop-color="#181822"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff5c8a"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.15" cy="0.2" r="0.5">
+      <stop offset="0" stop-color="#ff5c8a" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ff5c8a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.9" cy="0.9" r="0.55">
+      <stop offset="0" stop-color="#a855f7" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#a855f7" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="r"><rect width="1280" height="320" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="1280" height="320" fill="url(#bg)"/>
+    <rect width="1280" height="320" fill="url(#glow1)"/>
+    <rect width="1280" height="320" fill="url(#glow2)"/>
+    <!-- waveform -->
+    <g fill="url(#accent)" opacity="0.9" transform="translate(860 160)">
+      <rect x="0" y="-12" width="6" height="24" rx="3"/><rect x="10" y="-28" width="6" height="56" rx="3"/><rect x="20" y="-46" width="6" height="92" rx="3"/><rect x="30" y="-20" width="6" height="40" rx="3"/><rect x="40" y="-60" width="6" height="120" rx="3"/><rect x="50" y="-34" width="6" height="68" rx="3"/><rect x="60" y="-80" width="6" height="160" rx="3"/><rect x="70" y="-52" width="6" height="104" rx="3"/><rect x="80" y="-24" width="6" height="48" rx="3"/><rect x="90" y="-70" width="6" height="140" rx="3"/><rect x="100" y="-40" width="6" height="80" rx="3"/><rect x="110" y="-96" width="6" height="192" rx="3"/><rect x="120" y="-58" width="6" height="116" rx="3"/><rect x="130" y="-30" width="6" height="60" rx="3"/><rect x="140" y="-74" width="6" height="148" rx="3"/><rect x="150" y="-44" width="6" height="88" rx="3"/><rect x="160" y="-16" width="6" height="32" rx="3"/><rect x="170" y="-62" width="6" height="124" rx="3"/><rect x="180" y="-88" width="6" height="176" rx="3"/><rect x="190" y="-36" width="6" height="72" rx="3"/><rect x="200" y="-54" width="6" height="108" rx="3"/><rect x="210" y="-22" width="6" height="44" rx="3"/><rect x="220" y="-68" width="6" height="136" rx="3"/><rect x="230" y="-42" width="6" height="84" rx="3"/><rect x="240" y="-14" width="6" height="28" rx="3"/>
+    </g>
+    <g fill="#4a4a5f" opacity="0.7" transform="translate(1110 160)">
+      <rect x="0" y="-30" width="6" height="60" rx="3"/><rect x="10" y="-50" width="6" height="100" rx="3"/><rect x="20" y="-18" width="6" height="36" rx="3"/><rect x="30" y="-64" width="6" height="128" rx="3"/><rect x="40" y="-38" width="6" height="76" rx="3"/><rect x="50" y="-12" width="6" height="24" rx="3"/><rect x="60" y="-46" width="6" height="92" rx="3"/><rect x="70" y="-72" width="6" height="144" rx="3"/><rect x="80" y="-26" width="6" height="52" rx="3"/><rect x="90" y="-56" width="6" height="112" rx="3"/><rect x="100" y="-34" width="6" height="68" rx="3"/><rect x="110" y="-16" width="6" height="32" rx="3"/><rect x="120" y="-48" width="6" height="96" rx="3"/><rect x="130" y="-28" width="6" height="56" rx="3"/><rect x="140" y="-60" width="6" height="120" rx="3"/><rect x="150" y="-20" width="6" height="40" rx="3"/><rect x="160" y="-40" width="6" height="80" rx="3"/><rect x="170" y="-10" width="6" height="20" rx="3"/><rect x="180" y="-32" width="6" height="64" rx="3"/><rect x="190" y="-52" width="6" height="104" rx="3"/><rect x="200" y="-24" width="6" height="48" rx="3"/><rect x="210" y="-14" width="6" height="28" rx="3"/><rect x="220" y="-36" width="6" height="72" rx="3"/><rect x="230" y="-8" width="6" height="16" rx="3"/><rect x="240" y="-20" width="6" height="40" rx="3"/>
+    </g>
+    <!-- logo -->
+    <rect x="80" y="104" width="112" height="112" rx="28" fill="url(#accent)"/>
+    <g transform="translate(136 160)" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M-14 24V-24l40-8V16"/>
+      <circle cx="-26" cy="24" r="12"/>
+      <circle cx="14" cy="16" r="12"/>
+    </g>
+    <text x="224" y="150" font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#f4f4f5" letter-spacing="-1">MiniMax Music UI</text>
+    <text x="226" y="196" font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#a1a1aa">Suno-style interface for a self-hosted MiniMax-Music3 server</text>
+    <g font-family="Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#e4e4e7">
+      <rect x="226" y="222" width="86" height="30" rx="15" fill="#22222f"/><text x="269" y="242" text-anchor="middle">React 19</text>
+      <rect x="320" y="222" width="70" height="30" rx="15" fill="#22222f"/><text x="355" y="242" text-anchor="middle">Vite 8</text>
+      <rect x="398" y="222" width="96" height="30" rx="15" fill="#22222f"/><text x="446" y="242" text-anchor="middle">Tailwind 4</text>
+      <rect x="502" y="222" width="94" height="30" rx="15" fill="#22222f"/><text x="549" y="242" text-anchor="middle">Express 5</text>
+    </g>
+  </g>
+</svg>
