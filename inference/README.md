@@ -8,6 +8,19 @@ python server.py --host 127.0.0.1 --port 7862
 # then point the UI at http://127.0.0.1:7862
 ```
 
+### Model download
+
+The weights (`MiniMaxAI/MiniMax-Music3`, tens of GB) are **not** in this repo. On first start the script pulls them from the Hugging Face Hub into the HF cache (`~/.cache/huggingface/hub`, or `$HF_HOME`) — expect the first launch to take a while and `/health` to return 503 until it's done. To fetch ahead of time, or on a machine with a slow link:
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download MiniMaxAI/MiniMax-Music3
+# optional: HF_HOME=/big/disk/hf python server.py ...   (put the cache elsewhere)
+# optional: HF_HUB_OFFLINE=1 python server.py ...       (after the download; no network needed)
+```
+
+If the Hub asks you to accept the model's terms, do that on the model page and log in with `huggingface-cli login` first.
+
 | Route | |
 |---|---|
 | `POST /v1/audio/speech` | `{model, input (lyrics), instructions (style), response_format: "wav", seed?, max_new_tokens (25 fps frames, ≤ 9000), stream: false}` → 44.1 kHz stereo 16-bit WAV, seed used in `X-Seed` |
