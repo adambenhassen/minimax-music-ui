@@ -67,7 +67,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         <div>
           <h2 className="text-sm font-semibold">Inference server</h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Where the MiniMax-Music3 API lives. Values set via <code className="text-zinc-300">MUSIC_API</code> / <code className="text-zinc-300">MUSIC_API_KEY</code> environment variables always win and are shown locked here.
+            Base URL of the MiniMax-Music3 API — a path prefix is fine (e.g. <code className="text-zinc-300">http://host:8080/upstream/music3</code>); <code className="text-zinc-300">/generate</code>, <code className="text-zinc-300">/jobs/…</code> and <code className="text-zinc-300">/health</code> are appended. Values set via <code className="text-zinc-300">MUSIC_API</code> / <code className="text-zinc-300">MUSIC_API_KEY</code> environment variables always win and are shown locked here.
           </p>
         </div>
 
@@ -85,7 +85,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
             value={musicApi}
             disabled={settings.locked.musicApi}
             onChange={(e) => setMusicApi(e.target.value)}
-            placeholder="http://100.105.185.107:7862"
+            placeholder="http://100.105.185.107:8080/upstream/music3"
             spellCheck={false}
           />
         </div>

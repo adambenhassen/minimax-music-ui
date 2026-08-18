@@ -14,6 +14,8 @@ export interface FakeUpstreamOptions {
   audioBytes?: Buffer;
   /** milliseconds between auto-advances; 0 = advance on every poll */
   autoAdvanceMs?: number;
+  /** mount the API under a path prefix, e.g. '/upstream/music3' */
+  prefix?: string;
 }
 
 export interface FakeUpstream {
@@ -43,7 +45,9 @@ export function defaultScript(jobId: string, body: Record<string, unknown>): Ups
 }
 
 export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise<FakeUpstream> {
+  const root = express();
   const app = express();
+  root.use(opts.prefix ?? '/', app);
   app.use(express.json());
   const requests: FakeUpstream['requests'] = [];
   const jobs: FakeUpstream['jobs'] = new Map();
@@ -98,11 +102,11 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
   });
 
   const server: Server = await new Promise((resolve) => {
-    const s = app.listen(opts.autoAdvanceMs !== undefined && process.env.FAKE_PORT ? Number(process.env.FAKE_PORT) : 0, '127.0.0.1', () => resolve(s));
+    const s = root.listen(opts.autoAdvanceMs !== undefined && process.env.FAKE_PORT ? Number(process.env.FAKE_PORT) : 0, '127.0.0.1', () => resolve(s));
   });
   const addr = server.address() as { port: number };
   return {
-    url: `http://127.0.0.1:${addr.port}`,
+    url: `http://127.0.0.1:${addr.port}${opts.prefix ?? ''}`,
     app,
     requests,
     jobs,

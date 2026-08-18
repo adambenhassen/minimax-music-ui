@@ -56,7 +56,7 @@ git clone https://github.com/adambenhassen/minimax-music-ui.git
 cd minimax-music-ui
 npm install
 npm run build
-MUSIC_API=http://<inference-host>:7862 npm start
+MUSIC_API=http://<inference-host>:8080/upstream/music3 npm start
 # → http://localhost:8787
 ```
 
@@ -71,7 +71,7 @@ docker build -t minimax-music-ui .
 docker run -d -p 8787:8787 -v "$PWD/data:/data" minimax-music-ui
 ```
 
-Set `MUSIC_API` / `MUSIC_API_KEY` in the environment (or a `.env` next to `docker-compose.yml`) to pin the inference server; leave them unset to configure it from the Settings page. When the inference server runs on the Docker host, use `http://host.docker.internal:7862`.
+Set `MUSIC_API` / `MUSIC_API_KEY` in the environment (or a `.env` next to `docker-compose.yml`) to pin the inference server; leave them unset to configure it from the Settings page. When the inference server runs on the Docker host, use `http://host.docker.internal:<port>/…`.
 
 ### Configuration
 
@@ -83,7 +83,7 @@ The inference server address is resolved in this order:
 
 | Variable | Default | Description |
 |---|---|---|
-| `MUSIC_API` | – | Base URL of the inference server (overrides Settings) |
+| `MUSIC_API` | – | Base URL of the inference server, path prefix allowed, e.g. `http://host:8080/upstream/music3` (overrides Settings) |
 | `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` (overrides Settings) |
 | `PORT` | `8787` | Port for the UI server |
 | `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
@@ -122,7 +122,7 @@ FAKE_AUDIO=/path/to/real.wav FAKE_ADVANCE_MS=1500 npm run fake -w server
 
 ## Upstream API
 
-The server expects the inference box to speak this contract:
+The server expects the inference box to speak this contract, relative to `MUSIC_API` (which may include a path prefix such as `/upstream/music3`):
 
 | Method | Path | |
 |---|---|---|

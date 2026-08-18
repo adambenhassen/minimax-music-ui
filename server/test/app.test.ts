@@ -149,6 +149,25 @@ describe('app', () => {
     expect(again.effective()).toMatchObject({ musicApi: fake!.url, apiKey: null });
   });
 
+  it('works with a path-prefixed upstream base URL', async () => {
+    const { app, poller } = await setup({ prefix: '/upstream/music3' });
+    expect(fake!.url).toMatch(/\/upstream\/music3$/);
+    expect((await request(app).get('/api/health')).body.upstreamReachable).toBe(true);
+    const { body } = await request(app).post('/api/generate').send({ prompt: 'x', format: 'flac' });
+    for (let i = 0; i < 8; i++) await poller.tick();
+    expect((await request(app).get('/api/library')).body[0]).toMatchObject({ id: body[0].id, status: 'done' });
+    expect(fake!.requests.map((r) => r.path)).toEqual(expect.arrayContaining(['/health', '/generate', `/jobs/${body[0].jobId}`, `/jobs/${body[0].jobId}/audio`]));
+  });
+
+  it('settings keep a path prefix and drop trailing slashes', async () => {
+    const { app } = await setup({ prefix: '/upstream/music3' }, null, { musicApi: null, apiKey: null });
+    const put = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/` });
+    expect(put.status).toBe(200);
+    expect(put.body.musicApi).toBe(fake!.url);
+    expect((await request(app).get('/api/health')).body.upstreamReachable).toBe(true);
+    expect(fake!.requests.at(-1)?.path).toBe('/health');
+  });
+
   it('settings/test probes a candidate URL without saving', async () => {
     const { app } = await setup({}, null, { musicApi: null, apiKey: null });
     const ok = await request(app).post('/api/settings/test').send({ musicApi: fake!.url });
