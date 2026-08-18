@@ -71,6 +71,8 @@ export class UpstreamClient {
    * Reachability probe via GET /v1/models. Any HTTP answer means the server is up — a 404 just
    * means this build doesn't expose the models list (the official card only documents
    * /v1/audio/speech). Only a failed connection counts as unreachable.
+   * `ready` comes from an optional GET /health: a 503 means the model is still loading; anything
+   * else (404 on stock sgl-omni, timeouts) counts as ready.
    */
   async health(): Promise<UpstreamHealth> {
     let res: Response;
@@ -80,11 +82,23 @@ export class UpstreamClient {
       throw new UpstreamError(`upstream unreachable: ${(err as Error).message}`);
     }
     if (res.status === 401 || res.status === 403) throw new UpstreamError(`upstream ${res.status} on /v1/models — check the API key`, res.status);
-    if (!res.ok) return { ready: true, models: [] };
-    const json = (await res.json().catch(() => ({}))) as { data?: { id?: string }[] };
-    const models = (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
-    if (models.length) this.modelId = models[0];
-    return { ready: true, models };
+    let models: string[] = [];
+    if (res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { data?: { id?: string }[] };
+      models = (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
+      if (models.length) this.modelId = models[0];
+    }
+    return { ready: await this.ready(), models };
+  }
+
+  /** false only when GET /health answers 503 (model still loading); the route is optional. */
+  private async ready(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/health`, { headers: this.headers() });
+      return res.status !== 503;
+    } catch {
+      return true;
+    }
   }
 
   /** POST /v1/audio/speech, streaming the audio into `dest`. Returns the seed the server reports (X-Seed), if any. */

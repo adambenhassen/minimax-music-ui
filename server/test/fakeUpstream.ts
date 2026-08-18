@@ -14,6 +14,8 @@ export interface FakeUpstreamOptions {
   modelId?: string | null;
   /** reject requests whose `model` differs from modelId (or DEFAULT when modelId is null) */
   strictModel?: boolean;
+  /** expose GET /health answering 503 (model loading) — like inference/server.py; default: no /health route (stock sgl-omni) */
+  loading?: boolean;
 }
 
 export interface FakeUpstream {
@@ -37,6 +39,14 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
     if (modelId === null) return res.status(404).json({ detail: 'Not Found' });
     res.json({ object: 'list', data: [{ id: modelId, object: 'model' }] });
   });
+
+  if (opts.loading !== undefined) {
+    app.get('/health', (req, res) => {
+      requests.push({ method: 'GET', path: req.path });
+      if (opts.loading) return res.status(503).json({ detail: 'loading model' });
+      res.json({ status: 'ready' });
+    });
+  }
 
   app.post('/v1/audio/speech', (req, res) => {
     const entry = { method: 'POST', path: req.path, body: req.body, auth: req.header('authorization') ?? undefined, aborted: false };

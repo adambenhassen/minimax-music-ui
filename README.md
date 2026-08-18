@@ -107,13 +107,14 @@ The fake upstream (`server/test/fakeUpstream.ts`) implements `GET /v1/models` an
 
 ```bash
 FAKE_AUDIO=/path/to/real.wav FAKE_RENDER_MS=8000 npm run fake -w server
+FAKE_LOADING=1 npm run fake -w server   # exposes /health → 503, UI shows "Loading model…"
 ```
 
 ## UI server API
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | Upstream `/health` plus `upstreamReachable` |
+| `GET` | `/api/health` | `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), queue state |
 | `GET` | `/api/library` | Tracks, newest first |
 | `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, format, takes}` → created tracks (queued) |
 | `GET` | `/api/tracks/:id/audio` | Stream audio (`?download` for an attachment) |

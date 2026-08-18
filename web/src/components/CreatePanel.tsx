@@ -64,7 +64,8 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
 
 
   const online = !!health?.upstreamReachable;
-  const canSubmit = online && form.prompt.trim().length > 0 && !submitting;
+  const loading = online && !health!.ready;
+  const canSubmit = online && !loading && form.prompt.trim().length > 0 && !submitting;
   const estMin = useMemo(() => Math.round((form.duration * 3 * form.takes) / 60 * 10) / 10, [form.duration, form.takes]);
 
   const submit = async () => {
@@ -213,7 +214,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
           <Sparkle width={16} height={16} /> {submitting ? 'Queuing…' : form.takes > 1 ? `Create ${form.takes} takes` : 'Create'}
         </button>
         <span className="text-[11px] text-zinc-500">
-          {online ? `≈ ${estMin} min of GPU time` : health ? 'Inference server offline' : 'Connecting…'}
+          {loading ? 'Loading model…' : online ? `≈ ${estMin} min of GPU time` : health ? 'Inference server offline' : 'Connecting…'}
         </span>
       </div>
     </div>

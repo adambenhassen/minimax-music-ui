@@ -87,6 +87,17 @@ describe('app', () => {
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ model: 'MiniMaxAI/MiniMax-Music3' });
   });
 
+  it('reports ready:false while an optional /health answers 503, true once it recovers', async () => {
+    const { app } = await setup({ loading: true });
+    const loading = await request(app).get('/api/health');
+    expect(loading.body).toMatchObject({ upstreamReachable: true, ready: false, models: ['minimax_ttm'] });
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
+    await fake!.close();
+    fake = await startFakeUpstream({ loading: false, port: Number(new URL(fake!.url).port) });
+    const ready = await request(app).get('/api/health');
+    expect(ready.body).toMatchObject({ upstreamReachable: true, ready: true });
+  });
+
   it('works against a server without /v1/models (official card shape): reachable + default model id', async () => {
     const { app, lib } = await setup({ modelId: null, strictModel: true });
     const h = await request(app).get('/api/health');
