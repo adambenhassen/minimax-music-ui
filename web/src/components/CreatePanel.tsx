@@ -6,6 +6,13 @@ import { Chevron, Sparkle } from './Icons';
 
 export const TEMPLATE_PROMPT = 'Genre: acoustic pop. BPM: 96. Key: C major. Warm and intimate, building gently into the chorus. Vocals: soft female lead, close and breathy, light stacked harmonies in the chorus. Arrangement: fingerpicked guitar and soft piano; brushed drums and upright bass enter in the chorus.';
 
+/** Only WAV is served by the official route; FLAC/MP3 stay visible but disabled. */
+const FORMAT_OPTIONS = [
+  { value: 'wav', label: 'WAV', disabled: false },
+  { value: 'flac', label: 'FLAC (not supported by the API)', disabled: true },
+  { value: 'mp3', label: 'MP3 (not supported by the API)', disabled: true },
+];
+
 export const TEMPLATE_LYRICS = `[Verse]
 Morning light filtering through the pine
 Every quiet street is yours and mine
@@ -183,10 +190,16 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
           <Chevron width={14} height={14} className={`transition-transform ${advanced ? 'rotate-90' : ''}`} /> Advanced
         </button>
         {advanced && (
-          <div className="grid grid-cols-2 gap-3 mt-2 max-w-xs">
+          <div className="grid grid-cols-2 gap-3 mt-2">
             <div>
               <div className="label mb-1">Seed</div>
               <input className="field font-mono" inputMode="numeric" value={form.seed} onChange={(e) => set('seed', e.target.value)} placeholder="random" />
+            </div>
+            <div>
+              <div className="label mb-1">Format</div>
+              <select className="field" value={form.format} onChange={(e) => set('format', e.target.value)} title="The official /v1/audio/speech route documents WAV only">
+                {FORMAT_OPTIONS.map((f) => <option key={f.value} value={f.value} disabled={f.disabled}>{f.label}</option>)}
+              </select>
             </div>
           </div>
         )}
