@@ -10,6 +10,10 @@ export interface FakeUpstreamOptions {
   audioBytes?: Buffer;
   prefix?: string;
   port?: number;
+  /** advertised model id; null = no /v1/models route at all (stock sgl-omni per the model card) */
+  modelId?: string | null;
+  /** reject requests whose `model` differs from modelId (or DEFAULT when modelId is null) */
+  strictModel?: boolean;
 }
 
 export interface FakeUpstream {
@@ -27,9 +31,11 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
   const audio = opts.audioBytes ?? Buffer.from('RIFF-fake-audio');
   const renderMs = opts.renderMs ?? 30;
 
+  const modelId = opts.modelId === undefined ? 'minimax_ttm' : opts.modelId;
   app.get('/v1/models', (req, res) => {
     requests.push({ method: 'GET', path: req.path, auth: req.header('authorization') ?? undefined });
-    res.json({ object: 'list', data: [{ id: 'minimax_ttm', object: 'model' }] });
+    if (modelId === null) return res.status(404).json({ detail: 'Not Found' });
+    res.json({ object: 'list', data: [{ id: modelId, object: 'model' }] });
   });
 
   app.post('/v1/audio/speech', (req, res) => {
@@ -37,6 +43,7 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
     requests.push(entry);
     const b = req.body ?? {};
     if (b.stream === true) return res.status(400).json({ error: 'stream: true is not supported' });
+    if (opts.strictModel && b.model !== (modelId ?? 'MiniMaxAI/MiniMax-Music3')) return res.status(404).json({ error: `model ${b.model} not found` });
     if (!b.instructions) return res.status(422).json({ detail: 'instructions required' });
     if (!['wav', 'flac', 'mp3'].includes(b.response_format ?? 'wav')) return res.status(422).json({ detail: 'response_format must be wav, flac or mp3' });
     const timer = setTimeout(() => {

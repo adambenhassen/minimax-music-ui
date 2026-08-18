@@ -80,6 +80,22 @@ describe('app', () => {
     expect(dl.headers['content-disposition']).toMatch(/^attachment; filename=".+\.flac"$/);
   });
 
+  it('uses the model id advertised by /v1/models', async () => {
+    const { app, lib } = await setup({ modelId: 'MiniMaxAI/MiniMax-Music3', strictModel: true });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    await until(() => lib.get(res.body[0].id)?.status === 'done');
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ model: 'MiniMaxAI/MiniMax-Music3' });
+  });
+
+  it('works against a server without /v1/models (official card shape): reachable + default model id', async () => {
+    const { app, lib } = await setup({ modelId: null, strictModel: true });
+    const h = await request(app).get('/api/health');
+    expect(h.body).toMatchObject({ upstreamReachable: true, ready: true, models: [] });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    await until(() => lib.get(res.body[0].id)?.status === 'done');
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ model: 'MiniMaxAI/MiniMax-Music3' });
+  });
+
   it('random seed → seed reported by the server (X-Seed) is stored', async () => {
     const { app, lib } = await setup();
     const res = await request(app).post('/api/generate').send({ prompt: 'x' });

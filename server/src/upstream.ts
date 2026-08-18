@@ -12,6 +12,8 @@ const FRAMES_PER_SECOND = 25;
 const MAX_FRAMES = 9000;
 
 const EXT: Record<string, string> = { wav: 'wav', flac: 'flac', mp3: 'mp3' };
+/** Model id in the official model card's example; used when /v1/models doesn't tell us otherwise. */
+export const DEFAULT_MODEL = 'MiniMaxAI/MiniMax-Music3';
 export const extFor = (format: string) => EXT[format] ?? format;
 
 export class UpstreamError extends Error {
@@ -30,6 +32,7 @@ export interface SpeechBody {
 
 export interface UpstreamHealth {
   ready: boolean;
+  /** ids from GET /v1/models; empty when the server doesn't expose that route */
   models: string[];
 }
 
@@ -39,11 +42,19 @@ export interface UpstreamHealth {
  *   POST /v1/audio/speech  → audio bytes (blocking for the whole render)
  */
 export class UpstreamClient {
+  private modelId: string | null = null;
+
   constructor(private baseUrl: string, private apiKey: string | null = null) {}
 
   configure(baseUrl: string, apiKey: string | null): void {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
+    this.modelId = null;
+  }
+
+  /** Model id sent in requests: whatever /v1/models advertised, else the official default. */
+  get model(): string {
+    return this.modelId ?? DEFAULT_MODEL;
   }
 
   get url(): string {
@@ -56,7 +67,11 @@ export class UpstreamClient {
     return h;
   }
 
-  /** Reachability probe: the server is up when /v1/models answers. */
+  /**
+   * Reachability probe via GET /v1/models. Any HTTP answer means the server is up — a 404 just
+   * means this build doesn't expose the models list (the official card only documents
+   * /v1/audio/speech). Only a failed connection counts as unreachable.
+   */
   async health(): Promise<UpstreamHealth> {
     let res: Response;
     try {
@@ -64,16 +79,19 @@ export class UpstreamClient {
     } catch (err) {
       throw new UpstreamError(`upstream unreachable: ${(err as Error).message}`);
     }
-    if (!res.ok) throw new UpstreamError(`upstream ${res.status} on /v1/models`, res.status);
+    if (res.status === 401 || res.status === 403) throw new UpstreamError(`upstream ${res.status} on /v1/models — check the API key`, res.status);
+    if (!res.ok) return { ready: true, models: [] };
     const json = (await res.json().catch(() => ({}))) as { data?: { id?: string }[] };
     const models = (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
+    if (models.length) this.modelId = models[0];
     return { ready: true, models };
   }
 
   /** POST /v1/audio/speech, streaming the audio into `dest`. Returns the seed the server reports (X-Seed), if any. */
   async speechToFile(body: SpeechBody, dest: string, signal?: AbortSignal): Promise<{ seed: number | null }> {
+    if (!this.modelId) await this.health().catch(() => undefined);
     const payload = {
-      model: 'minimax_ttm',
+      model: this.model,
       input: body.lyrics,
       instructions: body.prompt,
       response_format: body.format,

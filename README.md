@@ -126,8 +126,8 @@ The server speaks the standard MiniMax-Music3 contract (the same one `sgl-omni s
 
 | Method | Path | |
 |---|---|---|
-| `GET` | `/v1/models` | Reachability probe; expected to list `minimax_ttm` |
-| `POST` | `/v1/audio/speech` | `{model: "minimax_ttm", input: <lyrics>, instructions: <style>, response_format: wav\|flac\|mp3, seed?, max_new_tokens: duration×25 (≤ 9000), stream: false}` → audio bytes; `X-Seed` header (if present) is stored |
+| `GET` | `/v1/models` | Reachability probe. Optional — a 404 still counts as "up". If present, the first listed id is used as `model`; otherwise `MiniMaxAI/MiniMax-Music3` (the model card's example) |
+| `POST` | `/v1/audio/speech` | `{model: <from /v1/models or "MiniMaxAI/MiniMax-Music3">, input: <lyrics>, instructions: <style>, response_format: wav\|flac\|mp3, seed?, max_new_tokens: duration×25 (≤ 9000), stream: false}` → audio bytes; `X-Seed` header (if present) is stored |
 
 The call blocks for the whole render (roughly 2.5–3× the audio length), so the UI server queues renders one at a time and shows an estimated bar. Optional `Authorization: Bearer <key>` is sent when an API key is configured.
 
