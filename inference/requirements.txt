@@ -1,0 +1,5 @@
+diffusers @ git+https://github.com/huggingface/diffusers
+torch
+soundfile
+fastapi
+uvicorn

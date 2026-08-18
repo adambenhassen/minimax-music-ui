@@ -43,11 +43,16 @@ browser ──/api/*──▶ server/ (Express 5)  ──POST /v1/audio/speech�
 |---|---|
 | `web/` | Vite + React 19 + TypeScript + Tailwind 4 single-page app. Talks only to `/api/*`. |
 | `server/` | Express 5 + TypeScript. Owns the library, proxies generation, serves the built SPA. |
+| `inference/` | Optional single-GPU MiniMax-Music3 server (Python, diffusers) exposing the same API as `sgl-omni serve`. |
 
 ## Requirements
 
 - Node.js 20 or newer
-- A running MiniMax-Music3 server exposing `POST /v1/audio/speech` and `GET /v1/models` — e.g. MiniMax's own `sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000` (see [Upstream API](#upstream-api))
+- A running MiniMax-Music3 server exposing `POST /v1/audio/speech` — either:
+  - MiniMax's own `sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000` (two GPUs), or
+  - the bundled single-GPU server in [`inference/`](inference/) (`python inference/server.py --port 7862`, ~24 GB VRAM) — same API, one card.
+
+  See [Upstream API](#upstream-api).
 
 ## Quick start
 
