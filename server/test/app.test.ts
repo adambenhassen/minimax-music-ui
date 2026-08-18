@@ -8,23 +8,26 @@ import type { Template } from '../src/types.js';
 import { UpstreamClient } from '../src/upstream.js';
 import { Poller } from '../src/poller.js';
 import { createApp, titleFromPrompt } from '../src/app.js';
+import { SettingsStore } from '../src/settings.js';
 import { startFakeUpstream, type FakeUpstream } from './fakeUpstream.js';
 
 let fake: FakeUpstream | null = null;
 afterEach(async () => { await fake?.close(); fake = null; });
 
-async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey: string | null = null) {
+async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey: string | null = null, env: { musicApi: string | null; apiKey: string | null } | null = null) {
   fake = await startFakeUpstream(opts);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'app-'));
   const lib = new Library(path.join(dir, 'library.json'));
   await lib.load();
+  const settings = new SettingsStore(path.join(dir, 'settings.json'), env ?? { musicApi: fake.url, apiKey });
+  await settings.load();
   const upstream = new UpstreamClient(fake.url, apiKey);
   const tracksDir = path.join(dir, 'tracks');
   const poller = new Poller(lib, upstream, tracksDir, 1000, () => {});
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
   await templates.load();
-  const app = createApp({ library: lib, templates, upstream, poller, tracksDir, log: () => {} });
-  return { app, lib, poller, tracksDir };
+  const app = createApp({ library: lib, templates, settings, upstream, poller, tracksDir, log: () => {} });
+  return { app, lib, poller, tracksDir, dir, upstream };
 }
 
 describe('app', () => {
@@ -111,6 +114,49 @@ describe('app', () => {
     expect((await request(app).delete(`/api/templates/${c.body.id}`)).status).toBe(200);
     expect((await request(app).delete(`/api/templates/${c.body.id}`)).status).toBe(404);
     expect((await request(app).get('/api/templates')).body).toEqual([]);
+  });
+
+  it('settings: env-locked values cannot be changed', async () => {
+    const { app } = await setup({}, 'k');
+    const s = await request(app).get('/api/settings');
+    expect(s.body).toMatchObject({ apiKeySet: true, locked: { musicApi: true, apiKey: true }, source: { musicApi: 'env', apiKey: 'env' } });
+    expect(s.body.musicApi).toBe(fake!.url);
+    expect(JSON.stringify(s.body)).not.toContain('"k"');
+    expect((await request(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(400);
+  });
+
+  it('settings: stored values apply, persist, and re-point the upstream client', async () => {
+    const { app, dir, upstream } = await setup({}, null, { musicApi: null, apiKey: null });
+    const before = await request(app).get('/api/settings');
+    expect(before.body).toMatchObject({ musicApi: 'http://127.0.0.1:7862', apiKeySet: false, locked: { musicApi: false, apiKey: false }, source: { musicApi: 'default', apiKey: 'none' } });
+    expect((await request(app).put('/api/settings').send({ musicApi: 'not a url' })).status).toBe(400);
+    expect((await request(app).put('/api/settings').send({ musicApi: 'ftp://x' })).status).toBe(400);
+    const put = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/`, apiKey: 'sekrit' });
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({ musicApi: fake!.url, apiKeySet: true, source: { musicApi: 'settings', apiKey: 'settings' } });
+    expect(upstream.url).toBe(fake!.url);
+    const stored = JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'));
+    expect(stored).toEqual({ musicApi: fake!.url, apiKey: 'sekrit' });
+    // requests now carry the bearer from settings
+    await request(app).get('/api/health');
+    expect(fake!.requests.at(-1)?.auth).toBe('Bearer sekrit');
+    // clearing the key
+    const cleared = await request(app).put('/api/settings').send({ apiKey: '' });
+    expect(cleared.body.apiKeySet).toBe(false);
+    // reload from disk
+    const again = new SettingsStore(path.join(dir, 'settings.json'), { musicApi: null, apiKey: null });
+    await again.load();
+    expect(again.effective()).toMatchObject({ musicApi: fake!.url, apiKey: null });
+  });
+
+  it('settings/test probes a candidate URL without saving', async () => {
+    const { app } = await setup({}, null, { musicApi: null, apiKey: null });
+    const ok = await request(app).post('/api/settings/test').send({ musicApi: fake!.url });
+    expect(ok.body).toMatchObject({ ok: true, musicApi: fake!.url, health: { ready: true } });
+    const bad = await request(app).post('/api/settings/test').send({ musicApi: 'http://127.0.0.1:1' });
+    expect(bad.body.ok).toBe(false);
+    expect(bad.body.error).toMatch(/unreachable/);
+    expect((await request(app).get('/api/settings')).body.musicApi).toBe('http://127.0.0.1:7862');
   });
 
   it('titleFromPrompt strips structured prefix', () => {

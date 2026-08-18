@@ -60,3 +60,17 @@ export interface Template {
   format: string;
   createdAt: string;
 }
+
+export interface Settings {
+  musicApi: string;
+  apiKeySet: boolean;
+  source: { musicApi: 'env' | 'settings' | 'default'; apiKey: 'env' | 'settings' | 'none' };
+  locked: { musicApi: boolean; apiKey: boolean };
+}
+
+export interface SettingsTestResult {
+  ok: boolean;
+  musicApi: string;
+  health?: Health;
+  error?: string;
+}

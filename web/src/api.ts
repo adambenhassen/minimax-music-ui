@@ -1,4 +1,4 @@
-import type { GenerateInput, Health, Template, Track } from './types';
+import type { GenerateInput, Health, Settings, SettingsTestResult, Template, Track } from './types';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -22,6 +22,11 @@ export const api = {
   saveTemplate: (t: Omit<Template, 'id' | 'createdAt'>) =>
     fetch('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) }).then((r) => json<Template>(r)),
   deleteTemplate: (id: string) => fetch(`/api/templates/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: true }>(r)),
+  settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
+  saveSettings: (patch: { musicApi?: string; apiKey?: string }) =>
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }).then((r) => json<Settings>(r)),
+  testSettings: (candidate: { musicApi?: string; apiKey?: string }) =>
+    fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(candidate) }).then((r) => json<SettingsTestResult>(r)),
   audioUrl: (id: string) => `/api/tracks/${id}/audio`,
   downloadUrl: (id: string) => `/api/tracks/${id}/audio?download`,
 };

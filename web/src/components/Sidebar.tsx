@@ -1,6 +1,6 @@
-import { Library, Music, Sparkle } from './Icons';
+import { Gear, Library, Music, Sparkle } from './Icons';
 
-export type View = 'create' | 'library';
+export type View = 'create' | 'library' | 'settings';
 
 export function Sidebar({ view, onChange, counts }: { view: View; onChange: (v: View) => void; counts: { inflight: number; total: number } }) {
   const item = (v: View, label: string, Icon: typeof Sparkle, badge?: number) => (
@@ -27,7 +27,9 @@ export function Sidebar({ view, onChange, counts }: { view: View; onChange: (v: 
       </div>
       {item('create', 'Create', Sparkle, counts.inflight)}
       {item('library', 'Library', Library, undefined)}
-      <div className="mt-auto px-3 py-2 text-[11px] text-zinc-500 hidden md:block">{counts.total} track{counts.total === 1 ? '' : 's'}</div>
+      <div className="mt-auto" />
+      {item('settings', 'Settings', Gear, undefined)}
+      <div className=" px-3 py-2 text-[11px] text-zinc-500 hidden md:block">{counts.total} track{counts.total === 1 ? '' : 's'}</div>
     </aside>
   );
 }

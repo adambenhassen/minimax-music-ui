@@ -7,6 +7,7 @@ import { HealthPill } from './components/HealthPill';
 import { CreatePanel, DEFAULT_FORM, formFromTrack, type FormState } from './components/CreatePanel';
 import { TrackFeed } from './components/TrackFeed';
 import { Player } from './components/Player';
+import { SettingsPanel } from './components/SettingsPanel';
 
 const FORM_KEY = 'minimax-music-ui.form';
 
@@ -92,10 +93,12 @@ export default function App() {
         <Sidebar view={view} onChange={setView} counts={{ inflight, total: tracks.length }} />
         <main className="flex-1 flex flex-col min-w-0">
           <header className="h-14 shrink-0 flex items-center justify-between gap-3 px-4 md:px-6 border-b border-ink-700">
-            <h1 className="text-base font-semibold truncate">{view === 'create' ? 'Create' : 'Library'}</h1>
+            <h1 className="text-base font-semibold truncate">{view === 'create' ? 'Create' : view === 'library' ? 'Library' : 'Settings'}</h1>
             <div className="flex items-center gap-3 shrink-0">
               {libError && <span className="text-xs text-red-400">UI server: {libError}</span>}
-              {health && !health.upstreamReachable && <span className="text-xs text-red-400 hidden md:inline">Set MUSIC_API and make sure the inference box is reachable</span>}
+              {health && !health.upstreamReachable && view !== 'settings' && (
+                <button className="text-xs text-red-400 hover:text-red-300 hidden md:inline underline-offset-2 hover:underline" onClick={() => setView('settings')}>Point the app at your inference server in Settings</button>
+              )}
               <HealthPill health={health} />
             </div>
           </header>
@@ -106,6 +109,8 @@ export default function App() {
               </section>
               <section className="p-4 md:p-5 lg:overflow-y-auto lg:min-h-0">{feed}</section>
             </div>
+          ) : view === 'settings' ? (
+            <div className="flex-1 min-h-0 overflow-y-auto"><SettingsPanel onSaved={() => void refresh()} /></div>
           ) : (
             <div className="flex-1 min-h-0 flex flex-col">
               <div className="px-5 pt-4">

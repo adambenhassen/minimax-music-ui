@@ -19,7 +19,17 @@ export class UpstreamError extends Error {
 }
 
 export class UpstreamClient {
-  constructor(private readonly baseUrl: string, private readonly apiKey: string | null = null) {}
+  constructor(private baseUrl: string, private apiKey: string | null = null) {}
+
+  /** Re-point the client (used when settings change at runtime). */
+  configure(baseUrl: string, apiKey: string | null): void {
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.apiKey = apiKey;
+  }
+
+  get url(): string {
+    return this.baseUrl;
+  }
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { ...extra };

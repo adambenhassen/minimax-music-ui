@@ -1,0 +1,15 @@
+services:
+  minimax-music-ui:
+    build: .
+    image: minimax-music-ui
+    container_name: minimax-music-ui
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data
+    environment:
+      # Optional. When set, these lock the corresponding fields in Settings.
+      # Leave unset to configure the inference server from the UI instead.
+      MUSIC_API: ${MUSIC_API:-}
+      MUSIC_API_KEY: ${MUSIC_API_KEY:-}
+    restart: unless-stopped

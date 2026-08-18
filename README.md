@@ -27,6 +27,7 @@
 - **Library** — every finished render is downloaded into `data/tracks/` with its metadata (prompt, lyrics, seed, peak level…) so it survives the inference box pruning its own job list. Search, download, delete, "reuse settings".
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
 - **Health pill** — offline / loading model / idle / rendering · N queued.
+- **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields.
 - Responsive down to phone width. No external services; everything runs on your machine or tailnet.
 
 ## Architecture
@@ -59,16 +60,33 @@ MUSIC_API=http://<inference-host>:7862 npm start
 # → http://localhost:8787
 ```
 
+Then open **Settings** in the sidebar and enter the inference server URL — or set `MUSIC_API` in the environment (see below).
+
+### Docker
+
+```bash
+docker compose up -d --build           # → http://localhost:8787, library persisted in ./data
+# or
+docker build -t minimax-music-ui .
+docker run -d -p 8787:8787 -v "$PWD/data:/data" minimax-music-ui
+```
+
+Set `MUSIC_API` / `MUSIC_API_KEY` in the environment (or a `.env` next to `docker-compose.yml`) to pin the inference server; leave them unset to configure it from the Settings page. When the inference server runs on the Docker host, use `http://host.docker.internal:7862`.
+
 ### Configuration
 
-All configuration is via environment variables on the server process.
+The inference server address is resolved in this order:
+
+1. `MUSIC_API` / `MUSIC_API_KEY` environment variables — always win; the Settings page shows them locked
+2. Values saved from the **Settings** page (`data/settings.json`, written with mode `0600`)
+3. Default `http://127.0.0.1:7862`
 
 | Variable | Default | Description |
 |---|---|---|
-| `MUSIC_API` | `http://127.0.0.1:7862` | Base URL of the inference server |
-| `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` |
+| `MUSIC_API` | – | Base URL of the inference server (overrides Settings) |
+| `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` (overrides Settings) |
 | `PORT` | `8787` | Port for the UI server |
-| `DATA_DIR` | `./data` | Where `library.json`, `templates.json` and `tracks/` live |
+| `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
 | `STATIC_DIR` | `web/dist` (if built) | Directory of the built SPA to serve |
 
 ## Development
@@ -98,6 +116,9 @@ FAKE_AUDIO=/path/to/real.wav FAKE_ADVANCE_MS=1500 npm run fake -w server
 | `GET` | `/api/templates` | Saved templates |
 | `POST` | `/api/templates` | `{name, prompt, lyrics?, duration?, steps?, format?}` — same name overwrites |
 | `DELETE` | `/api/templates/:id` | Remove a template |
+| `GET` | `/api/settings` | Effective inference URL, whether a key is set, and which fields are env-locked (the key itself is never returned) |
+| `PUT` | `/api/settings` | `{musicApi?, apiKey?}` — `apiKey: ""` clears it; env-locked fields are rejected |
+| `POST` | `/api/settings/test` | Probe a candidate `{musicApi?, apiKey?}` against `/health` without saving |
 
 ## Upstream API
 

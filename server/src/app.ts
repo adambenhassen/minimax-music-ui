@@ -6,12 +6,14 @@ import type { JsonStore, Library } from './library.js';
 import type { Poller } from './poller.js';
 import { UpstreamClient, UpstreamError } from './upstream.js';
 import { normalizeGenerate, ValidationError } from './validate.js';
+import { normalizeMusicApi, SettingsStore } from './settings.js';
 import { DEFAULT_FORMATS, type Template, type Track, type UpstreamHealth } from './types.js';
 import { extFor } from './poller.js';
 
 export interface AppDeps {
   library: Library;
   templates: JsonStore<Template>;
+  settings: SettingsStore;
   upstream: UpstreamClient;
   poller: Poller;
   tracksDir: string;
@@ -22,7 +24,7 @@ export interface AppDeps {
 const MIME: Record<string, string> = { wav: 'audio/wav', flac: 'audio/flac', mp3: 'audio/mpeg' };
 
 export function createApp(deps: AppDeps) {
-  const { library, templates, upstream, poller, tracksDir } = deps;
+  const { library, templates, settings, upstream, poller, tracksDir } = deps;
   const log = deps.log ?? ((m: string) => console.log(`[app] ${m}`));
   const app = express();
   app.use(express.json({ limit: '1mb' }));
@@ -124,6 +126,44 @@ export function createApp(deps: AppDeps) {
     }, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'file missing' });
     });
+  });
+
+  app.get('/api/settings', (_req, res) => {
+    res.json(settings.publicView());
+  });
+
+  app.put('/api/settings', async (req, res, next) => {
+    try {
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      await settings.update({ musicApi: b.musicApi, apiKey: b.apiKey });
+      const e = settings.effective();
+      upstream.configure(e.musicApi, e.apiKey);
+      lastHealth = null;
+      log(`upstream reconfigured → ${e.musicApi}${e.apiKey ? ' (bearer set)' : ''}`);
+      res.json(settings.publicView());
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/settings/test', async (req, res) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const e = settings.effective();
+    let url = e.musicApi;
+    let key = e.apiKey;
+    try {
+      if (typeof b.musicApi === 'string' && !settings.publicView().locked.musicApi) url = normalizeMusicApi(b.musicApi);
+      if (typeof b.apiKey === 'string' && !settings.publicView().locked.apiKey) key = b.apiKey.trim() || null;
+    } catch (err) {
+      return res.status(400).json({ ok: false, error: (err as Error).message });
+    }
+    const probe = new UpstreamClient(url, key);
+    try {
+      const h = await probe.health();
+      res.json({ ok: true, musicApi: url, health: h });
+    } catch (err) {
+      res.json({ ok: false, musicApi: url, error: (err as Error).message });
+    }
   });
 
   app.get('/api/templates', (_req, res) => {
