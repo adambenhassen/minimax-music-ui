@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #0a0a0f;
+  --color-ink-900: #111118;
+  --color-ink-800: #181822;
+  --color-ink-700: #22222f;
+  --color-ink-600: #2f2f40;
+  --color-ink-500: #4a4a5f;
+  --color-accent: #ff5c8a;
+  --color-accent-hover: #ff759d;
+  --color-accent-soft: rgba(255, 92, 138, 0.15);
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --animate-pulseBar: pulseBar 1.6s ease-in-out infinite;
+  @keyframes pulseBar {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-ink-600); border-radius: 9999px; }
+  textarea, input, select { outline: none; }
+  input[type='range'] { accent-color: var(--color-accent); }
+  button:not(:disabled), [role='switch'] { cursor: pointer; }
+}
+
+@utility field {
+  @apply w-full rounded-lg bg-ink-800 border border-ink-600 px-3 py-2 text-sm placeholder:text-zinc-500 focus:border-accent/70 focus:ring-1 focus:ring-accent/40 transition;
+}
+@utility label {
+  @apply text-[11px] uppercase tracking-wider text-zinc-400 font-medium;
+}
+@utility chip {
+  @apply px-2 py-0.5 rounded-md text-xs bg-ink-700 hover:bg-ink-600 border border-ink-600 text-zinc-300 transition;
+}
+@utility btn {
+  @apply inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed;
+}
+@utility btn-primary {
+  @apply btn bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20;
+}
+@utility btn-ghost {
+  @apply btn bg-transparent hover:bg-ink-700 text-zinc-300;
+}
+@utility icon-btn {
+  @apply p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-ink-600 transition disabled:opacity-40;
+}

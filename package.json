@@ -1,0 +1,20 @@
+{
+  "name": "minimax-music-ui",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:fake": "concurrently -k -n fake,server,web -c yellow,blue,magenta \"npm run fake -w server\" \"MUSIC_API=http://127.0.0.1:7999 npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w server && npm run build -w web",
+    "start": "npm run start -w server",
+    "test": "npm test -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
