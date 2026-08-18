@@ -3,20 +3,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { JsonStore, Library } from './library.js';
-import type { Poller } from './poller.js';
-import { UpstreamClient, UpstreamError } from './upstream.js';
+import { extFor, RenderQueue, UpstreamClient, UpstreamError } from './upstream.js';
 import { normalizeGenerate, ValidationError } from './validate.js';
 import { normalizeMusicApi, SettingsStore } from './settings.js';
-import { DEFAULT_FORMATS, type Template, type Track, type UpstreamHealth } from './types.js';
-import { extFor } from './poller.js';
 import { randomTitle } from './names.js';
+import { FORMATS, type Template, type Track } from './types.js';
 
 export interface AppDeps {
   library: Library;
   templates: JsonStore<Template>;
   settings: SettingsStore;
   upstream: UpstreamClient;
-  poller: Poller;
+  queue: RenderQueue;
   tracksDir: string;
   staticDir?: string | null;
   log?: (msg: string) => void;
@@ -25,21 +23,17 @@ export interface AppDeps {
 const MIME: Record<string, string> = { wav: 'audio/wav', flac: 'audio/flac', mp3: 'audio/mpeg' };
 
 export function createApp(deps: AppDeps) {
-  const { library, templates, settings, upstream, poller, tracksDir } = deps;
+  const { library, templates, settings, upstream, queue, tracksDir } = deps;
   const log = deps.log ?? ((m: string) => console.log(`[app] ${m}`));
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  let lastHealth: UpstreamHealth | null = null;
-
   app.get('/api/health', async (_req, res) => {
     try {
-      lastHealth = await upstream.health();
-      poller.upstreamReachable = true;
-      res.json({ upstreamReachable: true, ...lastHealth });
+      const h = await upstream.health();
+      res.json({ upstreamReachable: true, ready: h.ready, models: h.models, busy: queue.busy, queued: queue.queued, formats: FORMATS });
     } catch (err) {
-      poller.upstreamReachable = false;
-      res.json({ upstreamReachable: false, ready: false, busy: false, queued: 0, formats: lastHealth?.formats ?? DEFAULT_FORMATS, error: (err as Error).message });
+      res.json({ upstreamReachable: false, ready: false, busy: queue.busy, queued: queue.queued, formats: FORMATS, error: (err as Error).message });
     }
   });
 
@@ -49,48 +43,34 @@ export function createApp(deps: AppDeps) {
 
   app.post('/api/generate', async (req, res, next) => {
     try {
-      const formats = lastHealth?.formats?.length ? lastHealth.formats : DEFAULT_FORMATS;
-      const g = normalizeGenerate(req.body, formats);
+      const g = normalizeGenerate(req.body);
       const groupId = randomUUID();
       const title = g.title || randomTitle();
       const created: Track[] = [];
       for (let i = 0; i < g.takes; i++) {
-        const seed = g.seed === null ? null : g.seed + i;
         const track: Track = {
           id: randomUUID(),
           groupId,
           takeIndex: i,
-          jobId: null,
           title,
           prompt: g.prompt,
           lyrics: g.lyrics,
           duration: g.duration,
-          seed,
-          steps: g.steps,
+          seed: g.seed === null ? null : g.seed + i,
           format: g.format,
           status: 'queued',
           progress: 0,
-          stage: 'submitting',
+          stage: 'queued',
           eta: null,
           error: null,
           file: null,
           createdAt: new Date().toISOString(),
           finishedAt: null,
         };
-        try {
-          const { job_id } = await upstream.generate({ prompt: g.prompt, lyrics: g.lyrics, duration: g.duration, seed, steps: g.steps, format: g.format });
-          track.jobId = job_id;
-          track.stage = 'queued';
-        } catch (err) {
-          track.status = 'error';
-          track.stage = 'error';
-          track.error = (err as Error).message;
-          log(`generate failed: ${track.error}`);
-        }
         await library.add(track);
+        queue.enqueue(track.id);
         created.push(track);
       }
-      void poller.tick();
       res.status(201).json(created);
     } catch (err) {
       next(err);
@@ -100,16 +80,8 @@ export function createApp(deps: AppDeps) {
   app.delete('/api/tracks/:id', async (req, res) => {
     const track = library.get(req.params.id);
     if (!track) return res.status(404).json({ error: 'not found' });
-    if (track.jobId && (track.status === 'queued' || track.status === 'running')) {
-      try {
-        await upstream.cancel(track.jobId);
-      } catch (err) {
-        log(`cancel ${track.jobId} failed: ${(err as Error).message}`);
-      }
-    }
-    if (track.file) {
-      await fs.rm(path.join(tracksDir, track.file), { force: true });
-    }
+    if (track.status === 'queued' || track.status === 'running') queue.cancel(track.id);
+    if (track.file) await fs.rm(path.join(tracksDir, track.file), { force: true });
     await library.remove(track.id);
     res.json({ ok: true });
   });
@@ -140,7 +112,6 @@ export function createApp(deps: AppDeps) {
       await settings.update({ musicApi: b.musicApi, apiKey: b.apiKey });
       const e = settings.effective();
       upstream.configure(e.musicApi, e.apiKey);
-      lastHealth = null;
       log(`upstream reconfigured → ${e.musicApi}${e.apiKey ? ' (bearer set)' : ''}`);
       res.json(settings.publicView());
     } catch (err) {
@@ -151,18 +122,18 @@ export function createApp(deps: AppDeps) {
   app.post('/api/settings/test', async (req, res) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const e = settings.effective();
+    const locked = settings.publicView().locked;
     let url = e.musicApi;
     let key = e.apiKey;
     try {
-      if (typeof b.musicApi === 'string' && !settings.publicView().locked.musicApi) url = normalizeMusicApi(b.musicApi);
-      if (typeof b.apiKey === 'string' && !settings.publicView().locked.apiKey) key = b.apiKey.trim() || null;
+      if (typeof b.musicApi === 'string' && !locked.musicApi) url = normalizeMusicApi(b.musicApi);
+      if (typeof b.apiKey === 'string' && !locked.apiKey) key = b.apiKey.trim() || null;
     } catch (err) {
       return res.status(400).json({ ok: false, error: (err as Error).message });
     }
-    const probe = new UpstreamClient(url, key);
     try {
-      const h = await probe.health();
-      res.json({ ok: true, musicApi: url, health: h });
+      const h = await new UpstreamClient(url, key).health();
+      res.json({ ok: true, musicApi: url, health: { ...h, formats: FORMATS } });
     } catch (err) {
       res.json({ ok: false, musicApi: url, error: (err as Error).message });
     }
@@ -177,7 +148,7 @@ export function createApp(deps: AppDeps) {
       const b = (req.body ?? {}) as Record<string, unknown>;
       const name = typeof b.name === 'string' ? b.name.trim().slice(0, 80) : '';
       if (!name) throw new ValidationError('name is required');
-      const g = normalizeGenerate({ ...b, prompt: b.prompt, takes: 1 }, lastHealth?.formats?.length ? lastHealth.formats : DEFAULT_FORMATS);
+      const g = normalizeGenerate({ ...b, prompt: b.prompt, takes: 1 });
       const existing = templates.all().find((t) => t.name.toLowerCase() === name.toLowerCase());
       const tpl: Template = {
         id: existing?.id ?? randomUUID(),
@@ -185,7 +156,6 @@ export function createApp(deps: AppDeps) {
         prompt: g.prompt,
         lyrics: g.lyrics,
         duration: g.duration,
-        steps: g.steps,
         format: g.format,
         createdAt: new Date().toISOString(),
       };

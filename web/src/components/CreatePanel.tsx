@@ -22,12 +22,11 @@ export interface FormState {
   duration: number;
   takes: number;
   seed: string;
-  steps: string;
   format: string;
 }
 
 export const DEFAULT_FORM: FormState = {
-  mode: 'simple', title: '', prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, instrumental: false, duration: 60, takes: 1, seed: '', steps: '', format: 'flac',
+  mode: 'simple', title: '', prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, instrumental: false, duration: 60, takes: 1, seed: '', format: 'flac',
 };
 
 export function formFromTrack(t: Track): FormState {
@@ -40,7 +39,6 @@ export function formFromTrack(t: Track): FormState {
     duration: t.duration,
     takes: 1,
     seed: t.seed === null ? '' : String(t.seed),
-    steps: t.steps === null ? '' : String(t.steps),
     format: t.format,
   };
 }
@@ -58,7 +56,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => onFormChange({ ...form, [k]: v });
 
-  const formats = health?.formats?.length ? health.formats : ['wav', 'wav16', 'wav32f', 'flac', 'mp3'];
+  const formats = health?.formats?.length ? health.formats : ['wav', 'flac', 'mp3'];
   useEffect(() => {
     if (!formats.includes(form.format)) onFormChange({ ...form, format: formats.includes('flac') ? 'flac' : formats[0] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,9 +69,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const submit = async () => {
     setError(null);
     const seed = form.seed.trim() === '' ? null : Number(form.seed);
-    const steps = form.steps.trim() === '' ? null : Number(form.steps);
     if (seed !== null && !Number.isInteger(seed)) return setError('Seed must be an integer');
-    if (steps !== null && (!Number.isInteger(steps) || steps < 10 || steps > 100)) return setError('Steps must be 10–100');
     setSubmitting(true);
     try {
       await onSubmit({
@@ -82,7 +78,6 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
         lyrics: form.instrumental ? '[Instrumental]' : form.lyrics.trim(),
         duration: form.duration,
         seed,
-        steps,
         format: form.format,
         takes: form.takes,
       });
@@ -133,12 +128,11 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
         <div className="flex items-center justify-between mb-1">
           <div className="label">{form.mode === 'simple' ? 'Song description' : 'Style of music'}</div>
           <TemplatesMenu
-            builtin={{ prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, duration: 60, steps: null, format: 'flac' }}
+            builtin={{ prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, duration: 60, format: 'flac' }}
             current={{
               prompt: form.prompt.trim(),
               lyrics: form.instrumental ? '[Instrumental]' : form.lyrics.trim(),
               duration: form.duration,
-              steps: form.steps.trim() === '' ? null : Number(form.steps),
               format: form.format,
             }}
             onLoad={(t: TemplateValues) => onFormChange({
@@ -147,7 +141,6 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
               lyrics: t.lyrics === '[Instrumental]' ? '' : t.lyrics,
               instrumental: t.lyrics === '[Instrumental]',
               duration: t.duration,
-              steps: t.steps === null ? '' : String(t.steps),
               format: t.format,
             })}
           />
@@ -196,14 +189,10 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
           <Chevron width={14} height={14} className={`transition-transform ${advanced ? 'rotate-90' : ''}`} /> Advanced
         </button>
         {advanced && (
-          <div className="grid grid-cols-3 gap-3 mt-2">
+          <div className="grid grid-cols-2 gap-3 mt-2">
             <div>
               <div className="label mb-1">Seed</div>
               <input className="field font-mono" inputMode="numeric" value={form.seed} onChange={(e) => set('seed', e.target.value)} placeholder="random" />
-            </div>
-            <div>
-              <div className="label mb-1">Steps</div>
-              <input className="field font-mono" inputMode="numeric" value={form.steps} onChange={(e) => set('steps', e.target.value)} placeholder="30" />
             </div>
             <div>
               <div className="label mb-1">Format</div>

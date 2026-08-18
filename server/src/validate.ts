@@ -1,4 +1,4 @@
-import { DEFAULT_FORMATS, type GenerateRequest } from './types.js';
+import { FORMATS, type GenerateRequest } from './types.js';
 
 export class ValidationError extends Error {
   status = 400;
@@ -13,7 +13,7 @@ function optInt(v: unknown, name: string): number | null {
   return n;
 }
 
-export function normalizeGenerate(body: unknown, formats: string[] = DEFAULT_FORMATS): GenerateRequest {
+export function normalizeGenerate(body: unknown): GenerateRequest {
   if (!body || typeof body !== 'object') throw new ValidationError('body must be an object');
   const b = body as Record<string, unknown>;
 
@@ -28,12 +28,9 @@ export function normalizeGenerate(body: unknown, formats: string[] = DEFAULT_FOR
   const duration = clamp(Math.round(durationRaw), 5, 360);
 
   const seed = optInt(b.seed, 'seed');
-  const steps = optInt(b.steps, 'steps');
-  if (steps !== null && (steps < 10 || steps > 100)) throw new ValidationError('steps must be 10–100');
 
   const format = typeof b.format === 'string' && b.format ? b.format : 'wav';
-  const allowed = formats.length ? formats : DEFAULT_FORMATS;
-  if (!allowed.includes(format)) throw new ValidationError(`format must be one of ${allowed.join(', ')}`);
+  if (!FORMATS.includes(format)) throw new ValidationError(`format must be one of ${FORMATS.join(', ')}`);
 
   const takesRaw = b.takes === undefined ? 1 : Number(b.takes);
   if (!Number.isFinite(takesRaw)) throw new ValidationError('takes must be a number');
@@ -41,5 +38,5 @@ export function normalizeGenerate(body: unknown, formats: string[] = DEFAULT_FOR
 
   const title = typeof b.title === 'string' ? b.title.trim().slice(0, 120) : '';
 
-  return { title, prompt, lyrics, duration, seed, steps, format, takes };
+  return { title, prompt, lyrics, duration, seed, format, takes };
 }

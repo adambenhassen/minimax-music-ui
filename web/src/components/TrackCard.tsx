@@ -68,10 +68,8 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
             <span>·</span>
             <span>{FORMAT_LABEL[t.format] ?? t.format}</span>
             {t.seed !== null && (<><span>·</span><span className="font-mono">seed {t.seed}</span></>)}
-            {t.steps !== null && (<><span>·</span><span>{t.steps} steps</span></>)}
             <span>·</span>
             <span>{fmtAgo(t.createdAt)}</span>
-            {done && t.clipped && <span className="text-amber-400" title={`peak ${t.peakDbfs?.toFixed(1)} dBFS`}>clipped</span>}
             {t.lyrics !== '[Instrumental]' && (
               <button className="ml-auto text-zinc-400 hover:text-white" onClick={() => setOpen((o) => !o)}>{open ? 'hide lyrics' : 'lyrics'}</button>
             )}

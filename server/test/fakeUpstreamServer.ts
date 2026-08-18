@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import { startFakeUpstream } from './fakeUpstream.js';
 
-// Standalone fake for `npm run dev:fake`: jobs advance one state every ~2.5 s.
-// FAKE_AUDIO=path/to/file.wav makes it serve a real, playable file.
-process.env.FAKE_PORT ??= '7999';
+// Standalone fake for `npm run dev:fake` — no GPU needed.
+// FAKE_AUDIO=path/to/file.wav serves a real, playable file; FAKE_RENDER_MS sets the blocking render time.
+const port = Number(process.env.FAKE_PORT ?? 7999);
 const audioBytes = process.env.FAKE_AUDIO ? fs.readFileSync(process.env.FAKE_AUDIO) : undefined;
-const fake = await startFakeUpstream({ autoAdvanceMs: Number(process.env.FAKE_ADVANCE_MS ?? 2500), audioBytes });
-console.log(`fake upstream listening on ${fake.url}${audioBytes ? ` (audio: ${process.env.FAKE_AUDIO})` : ''}`);
+const fake = await startFakeUpstream({ renderMs: Number(process.env.FAKE_RENDER_MS ?? 8000), audioBytes, port });
+console.log(`fake MiniMax-Music3 server (POST /v1/audio/speech) listening on ${fake.url}${audioBytes ? ` (audio: ${process.env.FAKE_AUDIO})` : ''}`);

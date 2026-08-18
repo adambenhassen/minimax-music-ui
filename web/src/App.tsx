@@ -71,7 +71,7 @@ export default function App() {
 
   const reuse = (t: Track) => { setForm(formFromTrack(t)); setView('create'); };
   const retry = (t: Track) => {
-    void submit({ title: t.title, prompt: t.prompt, lyrics: t.lyrics, duration: t.duration, seed: t.seed, steps: t.steps, format: t.format, takes: 1 }).catch((e) => alert((e as Error).message));
+    void submit({ title: t.title, prompt: t.prompt, lyrics: t.lyrics, duration: t.duration, seed: t.seed, format: t.format, takes: 1 }).catch((e) => alert((e as Error).message));
   };
 
   const feed = (

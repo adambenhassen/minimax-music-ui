@@ -17,16 +17,15 @@ describe('normalizeGenerate', () => {
     expect(normalizeGenerate({ prompt: 'x', takes: 0 }).takes).toBe(1);
     expect(normalizeGenerate({ prompt: 'x', takes: 9 }).takes).toBe(4);
   });
-  it('validates steps and seed', () => {
-    expect(() => normalizeGenerate({ prompt: 'x', steps: 5 })).toThrow(/steps/);
-    expect(normalizeGenerate({ prompt: 'x', steps: null }).steps).toBeNull();
-    expect(normalizeGenerate({ prompt: 'x', steps: '40' }).steps).toBe(40);
+  it('validates seed', () => {
     expect(() => normalizeGenerate({ prompt: 'x', seed: 1.5 })).toThrow(/seed/);
     expect(normalizeGenerate({ prompt: 'x', seed: '' }).seed).toBeNull();
+    expect(normalizeGenerate({ prompt: 'x', seed: '42' }).seed).toBe(42);
   });
-  it('validates format against upstream list', () => {
+  it('validates format against the speech route list', () => {
     expect(() => normalizeGenerate({ prompt: 'x', format: 'ogg' })).toThrow(/format/);
-    expect(normalizeGenerate({ prompt: 'x', format: 'flac' }, ['flac']).format).toBe('flac');
-    expect(() => normalizeGenerate({ prompt: 'x', format: 'wav' }, ['flac'])).toThrow(/format/);
+    expect(() => normalizeGenerate({ prompt: 'x', format: 'wav16' })).toThrow(/format/);
+    expect(normalizeGenerate({ prompt: 'x', format: 'flac' }).format).toBe('flac');
+    expect(normalizeGenerate({ prompt: 'x' }).format).toBe('wav');
   });
 });

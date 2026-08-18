@@ -28,7 +28,7 @@ export function normalizeMusicApi(v: unknown): string {
   try {
     url = new URL(v.trim());
   } catch {
-    throw new ValidationError('musicApi must be a valid URL, e.g. http://100.105.185.107:8080/upstream/music3');
+    throw new ValidationError('musicApi must be a valid URL, e.g. http://100.105.185.107:8000');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new ValidationError('musicApi must be http or https');
   return url.toString().replace(/\/+$/, '');

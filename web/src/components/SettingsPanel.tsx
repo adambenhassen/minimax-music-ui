@@ -67,7 +67,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         <div>
           <h2 className="text-sm font-semibold">Inference server</h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Base URL of the MiniMax-Music3 API — a path prefix is fine (e.g. <code className="text-zinc-300">http://host:8080/upstream/music3</code>); <code className="text-zinc-300">/generate</code>, <code className="text-zinc-300">/jobs/…</code> and <code className="text-zinc-300">/health</code> are appended. Values set via <code className="text-zinc-300">MUSIC_API</code> / <code className="text-zinc-300">MUSIC_API_KEY</code> environment variables always win and are shown locked here.
+            Base URL of your MiniMax-Music3 server — anything that speaks the standard <code className="text-zinc-300">POST /v1/audio/speech</code> route (e.g. <code className="text-zinc-300">sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000</code> → <code className="text-zinc-300">http://host:8000</code>). A path prefix is fine; <code className="text-zinc-300">/v1/models</code> and <code className="text-zinc-300">/v1/audio/speech</code> are appended. Values set via <code className="text-zinc-300">MUSIC_API</code> / <code className="text-zinc-300">MUSIC_API_KEY</code> environment variables always win and are shown locked here.
           </p>
         </div>
 
@@ -85,7 +85,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
             value={musicApi}
             disabled={settings.locked.musicApi}
             onChange={(e) => setMusicApi(e.target.value)}
-            placeholder="http://100.105.185.107:8080/upstream/music3"
+            placeholder="http://100.105.185.107:8000"
             spellCheck={false}
           />
         </div>
@@ -127,7 +127,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         {test && (
           <div className={`text-xs rounded-lg px-3 py-2 border ${test.ok ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-red-300 bg-red-500/10 border-red-500/30'}`}>
             {test.ok
-              ? <>Reachable at <span className="font-mono">{test.musicApi}</span> — {test.health?.ready ? 'model ready' : 'model still loading'}{test.health?.formats?.length ? ` · formats: ${test.health.formats.join(', ')}` : ''}</>
+              ? <>Reachable at <span className="font-mono">{test.musicApi}</span>{test.health?.models?.length ? ` · models: ${test.health.models.join(', ')}` : ''}{test.health?.formats?.length ? ` · formats: ${test.health.formats.join(', ')}` : ''}</>
               : <>Could not reach <span className="font-mono">{test.musicApi}</span>: {test.error}</>}
           </div>
         )}

@@ -6,8 +6,8 @@ import { Library } from '../src/library.js';
 import type { Track } from '../src/types.js';
 
 const mk = (id: string): Track => ({
-  id, groupId: 'g', takeIndex: 0, jobId: null, title: id, prompt: 'p', lyrics: '[Instrumental]',
-  duration: 60, seed: null, steps: null, format: 'wav', status: 'queued', progress: 0, stage: 'queued',
+  id, groupId: 'g', takeIndex: 0, title: id, prompt: 'p', lyrics: '[Instrumental]',
+  duration: 60, seed: null, format: 'wav', status: 'queued', progress: 0, stage: 'queued',
   eta: null, error: null, file: null, createdAt: new Date().toISOString(), finishedAt: null,
 });
 

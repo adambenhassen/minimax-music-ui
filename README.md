@@ -3,8 +3,9 @@
 </p>
 
 <p align="center">
-  A Suno-style web interface for a self-hosted <a href="https://huggingface.co/MiniMaxAI/MiniMax-Music3">MiniMax-Music3</a> inference server.<br>
-  Write a style prompt and lyrics, queue takes, watch them render, and keep a local library with a waveform player.
+  A Suno-style web interface for any self-hosted <a href="https://huggingface.co/MiniMaxAI/MiniMax-Music3">MiniMax-Music3</a> server.<br>
+  Write a style prompt and lyrics, queue takes, watch them render, and keep a local library with a waveform player.<br>
+  Talks the standard <code>POST /v1/audio/speech</code> route, so it works with <code>sgl-omni serve</code> out of the box.
 </p>
 
 <p align="center">
@@ -21,22 +22,21 @@
 
 ## Features
 
-- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed / steps / output format.
-- **Templates** — a built-in default plus your own saved templates (style, lyrics, duration, steps, format), stored server-side.
-- **Live queue** — cards show stage, progress bar and ETA straight from the inference server; cancel while queued, retry on error.
-- **Library** — every finished render is downloaded into `data/tracks/` with its metadata (prompt, lyrics, seed, peak level…) so it survives the inference box pruning its own job list. Search, download, delete, "reuse settings".
+- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed / output format (wav · flac · mp3).
+- **Templates** — a built-in default plus your own saved templates (style, lyrics, duration, format), stored server-side.
+- **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the API reports no progress). Cancel while queued or rendering, retry on error.
+- **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Search, download, delete, "reuse settings".
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
-- **Health pill** — offline / loading model / idle / rendering · N queued.
+- **Health pill** — offline / idle / rendering · N queued (probes `GET /v1/models`).
 - **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields.
 - Responsive down to phone width. No external services; everything runs on your machine or tailnet.
 
 ## Architecture
 
 ```
-browser ──/api/*──▶ server/ (Express 5)  ──HTTP──▶  MiniMax-Music3 inference server (:7862)
-                      │  polls /jobs/{id} every 1 s
-                      │  downloads /jobs/{id}/audio when done
-                      └─▶ data/library.json · data/templates.json · data/tracks/*.flac|wav|mp3
+browser ──/api/*──▶ server/ (Express 5)  ──POST /v1/audio/speech──▶  MiniMax-Music3 server (sgl-omni, :8000)
+                      │  one render at a time; streams the audio response to disk
+                      └─▶ data/library.json · data/templates.json · data/settings.json · data/tracks/*.wav|flac|mp3
 ```
 
 | Package | What |
@@ -47,7 +47,7 @@ browser ──/api/*──▶ server/ (Express 5)  ──HTTP──▶  MiniMax-
 ## Requirements
 
 - Node.js 20 or newer
-- A running MiniMax-Music3 inference server exposing `POST /generate`, `GET /jobs/{id}`, `GET /jobs/{id}/audio`, `DELETE /jobs/{id}`, `GET /health` (see [Upstream API](#upstream-api))
+- A running MiniMax-Music3 server exposing `POST /v1/audio/speech` and `GET /v1/models` — e.g. MiniMax's own `sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000` (see [Upstream API](#upstream-api))
 
 ## Quick start
 
@@ -56,7 +56,7 @@ git clone https://github.com/adambenhassen/minimax-music-ui.git
 cd minimax-music-ui
 npm install
 npm run build
-MUSIC_API=http://<inference-host>:8080/upstream/music3 npm start
+MUSIC_API=http://<inference-host>:8000 npm start
 # → http://localhost:8787
 ```
 
@@ -83,7 +83,7 @@ The inference server address is resolved in this order:
 
 | Variable | Default | Description |
 |---|---|---|
-| `MUSIC_API` | – | Base URL of the inference server, path prefix allowed, e.g. `http://host:8080/upstream/music3` (overrides Settings) |
+| `MUSIC_API` | – | Base URL of the inference server, path prefix allowed, e.g. `http://host:8000` (overrides Settings) |
 | `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` (overrides Settings) |
 | `PORT` | `8787` | Port for the UI server |
 | `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
@@ -98,10 +98,10 @@ npm test             # server tests (vitest) against the fake upstream
 npm run typecheck    # both packages
 ```
 
-The fake upstream (`server/test/fakeUpstream.ts`) walks each job through `queued → running → done`. Options for the standalone runner:
+The fake upstream (`server/test/fakeUpstream.ts`) implements `GET /v1/models` and a blocking `POST /v1/audio/speech`. Options for the standalone runner:
 
 ```bash
-FAKE_AUDIO=/path/to/real.wav FAKE_ADVANCE_MS=1500 npm run fake -w server
+FAKE_AUDIO=/path/to/real.wav FAKE_RENDER_MS=8000 npm run fake -w server
 ```
 
 ## UI server API
@@ -110,29 +110,26 @@ FAKE_AUDIO=/path/to/real.wav FAKE_ADVANCE_MS=1500 npm run fake -w server
 |---|---|---|
 | `GET` | `/api/health` | Upstream `/health` plus `upstreamReachable` |
 | `GET` | `/api/library` | Tracks, newest first |
-| `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, steps?, format, takes}` → created tracks |
+| `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, format, takes}` → created tracks (queued) |
 | `GET` | `/api/tracks/:id/audio` | Stream audio (`?download` for an attachment) |
-| `DELETE` | `/api/tracks/:id` | Cancel upstream if in flight, delete file and entry |
+| `DELETE` | `/api/tracks/:id` | Cancel (dequeue or abort the render), delete file and entry |
 | `GET` | `/api/templates` | Saved templates |
-| `POST` | `/api/templates` | `{name, prompt, lyrics?, duration?, steps?, format?}` — same name overwrites |
+| `POST` | `/api/templates` | `{name, prompt, lyrics?, duration?, format?}` — same name overwrites |
 | `DELETE` | `/api/templates/:id` | Remove a template |
 | `GET` | `/api/settings` | Effective inference URL, whether a key is set, and which fields are env-locked (the key itself is never returned) |
 | `PUT` | `/api/settings` | `{musicApi?, apiKey?}` — `apiKey: ""` clears it; env-locked fields are rejected |
-| `POST` | `/api/settings/test` | Probe a candidate `{musicApi?, apiKey?}` against `/health` without saving |
+| `POST` | `/api/settings/test` | Probe a candidate `{musicApi?, apiKey?}` against `/v1/models` without saving |
 
 ## Upstream API
 
-The server expects the inference box to speak this contract, relative to `MUSIC_API` (which may include a path prefix such as `/upstream/music3`):
+The server speaks the standard MiniMax-Music3 contract (the same one `sgl-omni serve` exposes), relative to `MUSIC_API`:
 
 | Method | Path | |
 |---|---|---|
-| `POST` | `/generate` | `{prompt, lyrics="[Instrumental]", duration=60 (5–360), seed?, steps? (10–100), format="wav"\|wav16\|wav32f\|flac\|mp3, wait=false}` → `{job_id}` |
-| `GET` | `/jobs/{id}` | `{status: queued\|running\|done\|error, progress, stage, eta, seed, error?, audio_url?, sampling_rate?, peak_dbfs?, clipped?}` |
-| `GET` | `/jobs/{id}/audio` | Finished render |
-| `DELETE` | `/jobs/{id}` | Cancel if queued / delete file |
-| `GET` | `/health` | `{ready, busy, queued, formats[], sampling_rate}` |
+| `GET` | `/v1/models` | Reachability probe; expected to list `minimax_ttm` |
+| `POST` | `/v1/audio/speech` | `{model: "minimax_ttm", input: <lyrics>, instructions: <style>, response_format: wav\|flac\|mp3, seed?, max_new_tokens: duration×25 (≤ 9000), stream: false}` → audio bytes; `X-Seed` header (if present) is stored |
 
-Only one job renders at a time upstream; additional submissions queue. Rendering is roughly 2.5–3× slower than realtime.
+The call blocks for the whole render (roughly 2.5–3× the audio length), so the UI server queues renders one at a time and shows an estimated bar. Optional `Authorization: Bearer <key>` is sent when an API key is configured.
 
 ## Contributing
 

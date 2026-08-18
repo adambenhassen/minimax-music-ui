@@ -4,29 +4,24 @@ export interface Track {
   id: string;
   groupId: string;
   takeIndex: number;
-  jobId: string | null;
   title: string;
   prompt: string;
   lyrics: string;
   duration: number;
   seed: number | null;
-  steps: number | null;
   format: string;
   status: TrackStatus;
+  /** 0..1 — estimated while rendering (the API is blocking and reports no progress) */
   progress: number;
   stage: string;
+  /** estimated seconds remaining */
   eta: number | null;
-  /** seconds the upstream job has been running (from /jobs/{id}) */
+  /** seconds since the render started */
   elapsed?: number | null;
   error: string | null;
   file: string | null;
   createdAt: string;
   finishedAt: string | null;
-  sampleRate?: number;
-  channels?: number;
-  encoding?: string;
-  peakDbfs?: number;
-  clipped?: boolean;
 }
 
 export interface GenerateRequest {
@@ -35,39 +30,9 @@ export interface GenerateRequest {
   lyrics: string;
   duration: number;
   seed: number | null;
-  steps: number | null;
   format: string;
   takes: number;
 }
-
-export interface UpstreamHealth {
-  ready: boolean;
-  busy: boolean;
-  queued: number;
-  sampling_rate?: number;
-  formats?: string[];
-}
-
-export interface UpstreamJob {
-  job_id: string;
-  status: TrackStatus;
-  progress?: number;
-  stage?: string;
-  elapsed?: number;
-  eta?: number | null;
-  seed?: number | null;
-  duration?: number;
-  format?: string;
-  error?: string;
-  audio_url?: string;
-  sampling_rate?: number;
-  channels?: number;
-  encoding?: string;
-  peak_dbfs?: number;
-  clipped?: boolean;
-}
-
-export const DEFAULT_FORMATS = ['wav', 'wav16', 'wav32f', 'flac', 'mp3'];
 
 export interface Template {
   id: string;
@@ -75,7 +40,9 @@ export interface Template {
   prompt: string;
   lyrics: string;
   duration: number;
-  steps: number | null;
   format: string;
   createdAt: string;
 }
+
+/** Output formats accepted by POST /v1/audio/speech. */
+export const FORMATS = ['wav', 'flac', 'mp3'];

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { isInflight, type Health, type Track } from '../types';
 
-const OFFLINE_HEALTH: Health = { upstreamReachable: false, ready: false, busy: false, queued: 0, formats: ['wav', 'wav16', 'wav32f', 'flac', 'mp3'], error: 'ui server unreachable' };
+const OFFLINE_HEALTH: Health = { upstreamReachable: false, ready: false, busy: false, queued: 0, formats: ['wav', 'flac', 'mp3'], error: 'ui server unreachable' };
 
 export function useHealth(intervalMs = 5000) {
   const [health, setHealth] = useState<Health | null>(null);

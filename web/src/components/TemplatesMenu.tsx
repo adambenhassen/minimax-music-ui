@@ -7,7 +7,6 @@ export interface TemplateValues {
   prompt: string;
   lyrics: string;
   duration: number;
-  steps: number | null;
   format: string;
 }
 
@@ -86,7 +85,7 @@ export function TemplatesMenu({ builtin, current, onLoad }: Props) {
             <input className="field !py-1 text-xs" placeholder="Template name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void save(); }} />
             <button type="button" className="btn-primary !px-3 !py-1 text-xs" disabled={!name.trim() || saving} onClick={save}>Save</button>
           </div>
-          <div className="text-[10px] text-zinc-500 px-2 pb-1">Saves style, lyrics, duration, steps and format. Same name overwrites.</div>
+          <div className="text-[10px] text-zinc-500 px-2 pb-1">Saves style, lyrics, duration and format. Same name overwrites.</div>
           {error && <div className="text-[11px] text-red-400 px-2 pb-1">{error}</div>}
         </div>
       )}
