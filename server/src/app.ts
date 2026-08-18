@@ -9,6 +9,7 @@ import { normalizeGenerate, ValidationError } from './validate.js';
 import { normalizeMusicApi, SettingsStore } from './settings.js';
 import { DEFAULT_FORMATS, type Template, type Track, type UpstreamHealth } from './types.js';
 import { extFor } from './poller.js';
+import { randomTitle } from './names.js';
 
 export interface AppDeps {
   library: Library;
@@ -51,6 +52,7 @@ export function createApp(deps: AppDeps) {
       const formats = lastHealth?.formats?.length ? lastHealth.formats : DEFAULT_FORMATS;
       const g = normalizeGenerate(req.body, formats);
       const groupId = randomUUID();
+      const title = g.title || randomTitle();
       const created: Track[] = [];
       for (let i = 0; i < g.takes; i++) {
         const seed = g.seed === null ? null : g.seed + i;
@@ -59,7 +61,7 @@ export function createApp(deps: AppDeps) {
           groupId,
           takeIndex: i,
           jobId: null,
-          title: g.title || titleFromPrompt(g.prompt),
+          title,
           prompt: g.prompt,
           lyrics: g.lyrics,
           duration: g.duration,
@@ -217,12 +219,6 @@ export function createApp(deps: AppDeps) {
   });
 
   return app;
-}
-
-export function titleFromPrompt(prompt: string): string {
-  const cleaned = prompt.replace(/^(Global Metadata|Vocal Details|Arrangement):\s*/i, '').replace(/\s+/g, ' ').trim();
-  const words = cleaned.split(' ').slice(0, 6).join(' ');
-  return words.length > 48 ? `${words.slice(0, 45)}…` : words || 'Untitled';
 }
 
 const safeName = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'track';

@@ -21,7 +21,7 @@
 
 ## Features
 
-- **Create panel** — Simple or Custom mode, song title, style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed / steps / output format.
+- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed / steps / output format.
 - **Templates** — a built-in default plus your own saved templates (style, lyrics, duration, steps, format), stored server-side.
 - **Live queue** — cards show stage, progress bar and ETA straight from the inference server; cancel while queued, retry on error.
 - **Library** — every finished render is downloaded into `data/tracks/` with its metadata (prompt, lyrics, seed, peak level…) so it survives the inference box pruning its own job list. Search, download, delete, "reuse settings".

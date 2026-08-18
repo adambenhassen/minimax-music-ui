@@ -126,7 +126,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
 
       <div>
         <div className="label mb-1">Song title <span className="text-zinc-600 normal-case tracking-normal">(optional)</span></div>
-        <input className="field" value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="Auto-named from the description if empty" maxLength={120} />
+        <input className="field" value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="Leave empty for a random name" maxLength={120} />
       </div>
 
       <div>

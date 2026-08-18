@@ -7,7 +7,7 @@ import { JsonStore, Library } from '../src/library.js';
 import type { Template } from '../src/types.js';
 import { UpstreamClient } from '../src/upstream.js';
 import { Poller } from '../src/poller.js';
-import { createApp, titleFromPrompt } from '../src/app.js';
+import { createApp } from '../src/app.js';
 import { SettingsStore } from '../src/settings.js';
 import { startFakeUpstream, type FakeUpstream } from './fakeUpstream.js';
 
@@ -48,7 +48,8 @@ describe('app', () => {
     expect(res.body).toHaveLength(3);
     expect(res.body.map((t: { seed: number }) => t.seed)).toEqual([100, 101, 102]);
     expect(res.body[0].groupId).toBe(res.body[2].groupId);
-    expect(res.body[0].title).toBe('lo-fi hip hop, 80 BPM');
+    expect(res.body[0].title).toMatch(/^[A-Z][A-Za-z&' ]+$/);
+    expect(new Set(res.body.map((t: { title: string }) => t.title)).size).toBe(1); // all takes share the name
     expect(res.body.every((t: { jobId: string }) => t.jobId)).toBe(true);
     expect(lib.all()).toHaveLength(3);
     const gen = fake!.requests.filter((r) => r.path === '/generate');
@@ -74,7 +75,7 @@ describe('app', () => {
 
   it('full cycle: generate → poll → audio → delete', async () => {
     const { app, poller, tracksDir } = await setup();
-    const { body } = await request(app).post('/api/generate').send({ prompt: 'ambient piano', format: 'mp3' });
+    const { body } = await request(app).post('/api/generate').send({ prompt: 'ambient piano', title: 'ambient piano', format: 'mp3' });
     const id = body[0].id;
     for (let i = 0; i < 8; i++) await poller.tick();
     const lib = await request(app).get('/api/library');
@@ -178,8 +179,9 @@ describe('app', () => {
     expect((await request(app).get('/api/settings')).body.musicApi).toBe('http://127.0.0.1:7862');
   });
 
-  it('titleFromPrompt strips structured prefix', () => {
-    expect(titleFromPrompt('Global Metadata: genre dream pop, 92 BPM, D major, wistful')).toBe('genre dream pop, 92 BPM, D');
-    expect(titleFromPrompt('   ')).toBe('Untitled');
+  it('uses the given title when present', async () => {
+    const { app } = await setup();
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', title: '  Pine Morning ' });
+    expect(res.body[0].title).toBe('Pine Morning');
   });
 });
