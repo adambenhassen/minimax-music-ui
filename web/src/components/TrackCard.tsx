@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { isInflight, type Track } from '../types';
 import { coverStyle } from '../lib/cover';
-import { fmtAgo, fmtEta, fmtTime, FORMAT_LABEL } from '../lib/format';
+import { fmtAgo, fmtTime, FORMAT_LABEL } from '../lib/format';
 import { api } from '../api';
 import { Alert, Download, Pause, Play, Refresh, Reuse, Trash, X } from './Icons';
+import { ProgressDetail } from './ProgressDetail';
 
 interface Props {
   track: Track;
@@ -76,17 +77,7 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
             )}
           </div>
 
-          {inflight && (
-            <div className="mt-2">
-              <div className="h-1.5 rounded-full bg-ink-700 overflow-hidden">
-                <div className={`h-full rounded-full bg-gradient-to-r from-accent to-purple-400 transition-all ${t.progress === 0 ? 'animate-pulseBar w-1/12' : ''}`} style={t.progress > 0 ? { width: `${Math.max(2, t.progress * 100)}%` } : undefined} />
-              </div>
-              <div className="flex justify-between text-[11px] text-zinc-400 mt-1">
-                <span>{t.stage}</span>
-                <span>{fmtEta(t.eta)}</span>
-              </div>
-            </div>
-          )}
+          {inflight && <ProgressDetail track={t} />}
 
           {err && <div className="mt-2 text-[11px] text-red-400 break-words">{t.error}</div>}
         </div>

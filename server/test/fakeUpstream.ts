@@ -32,9 +32,9 @@ export function defaultScript(jobId: string, body: Record<string, unknown>): Ups
   const seed = typeof body.seed === 'number' ? body.seed : 424242;
   return [
     { job_id: jobId, status: 'queued', progress: 0, stage: 'queued', eta: null, seed, duration, format },
-    { job_id: jobId, status: 'running', progress: 0.1, stage: 'generating audio tokens', eta: duration * 2.7, seed, duration, format },
-    { job_id: jobId, status: 'running', progress: 0.5, stage: 'step 210/420', eta: duration * 1.3, seed, duration, format },
-    { job_id: jobId, status: 'running', progress: 0.95, stage: 'decoding audio', eta: 5, seed, duration, format },
+    { job_id: jobId, status: 'running', progress: 0.1, stage: 'generating audio tokens', eta: duration * 2.7, elapsed: 4.2, seed, duration, format },
+    { job_id: jobId, status: 'running', progress: 0.5, stage: 'step 210/420', eta: duration * 1.3, elapsed: duration * 1.4, seed, duration, format },
+    { job_id: jobId, status: 'running', progress: 0.95, stage: 'decoding audio', eta: 5, elapsed: duration * 2.6, seed, duration, format },
     {
       job_id: jobId, status: 'done', progress: 1, stage: 'done', eta: 0, seed, duration, format,
       audio_url: `/jobs/${jobId}/audio`, sampling_rate: 44100, channels: 2, encoding: 'PCM_24', peak_dbfs: -1.2, clipped: false,

@@ -65,6 +65,7 @@ export class Poller {
       progress: typeof job.progress === 'number' ? job.progress : track.progress,
       stage: job.stage ?? track.stage,
       eta: typeof job.eta === 'number' ? job.eta : null,
+      elapsed: typeof job.elapsed === 'number' ? job.elapsed : track.elapsed ?? null,
       seed: typeof job.seed === 'number' ? job.seed : track.seed,
     };
 

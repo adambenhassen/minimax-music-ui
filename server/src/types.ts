@@ -16,6 +16,8 @@ export interface Track {
   progress: number;
   stage: string;
   eta: number | null;
+  /** seconds the upstream job has been running (from /jobs/{id}) */
+  elapsed?: number | null;
   error: string | null;
   file: string | null;
   createdAt: string;

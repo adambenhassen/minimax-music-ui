@@ -35,7 +35,7 @@ describe('Poller', () => {
     await poller.tick(); // queued
     expect(lib.get('t1')?.status).toBe('queued');
     await poller.tick(); // running 0.1
-    expect(lib.get('t1')).toMatchObject({ status: 'running', progress: 0.1, stage: 'generating audio tokens', seed: 424242 });
+    expect(lib.get('t1')).toMatchObject({ status: 'running', progress: 0.1, stage: 'generating audio tokens', seed: 424242, elapsed: 4.2 });
     await poller.tick(); await poller.tick(); // 0.5, 0.95
     await poller.tick(); // done → download
     const t = lib.get('t1')!;
