@@ -44,5 +44,5 @@ export interface Template {
   createdAt: string;
 }
 
-/** Output formats accepted by POST /v1/audio/speech. */
-export const FORMATS = ['wav', 'flac', 'mp3'];
+/** Output formats — the official /v1/audio/speech route documents wav only. */
+export const FORMATS = ['wav'];

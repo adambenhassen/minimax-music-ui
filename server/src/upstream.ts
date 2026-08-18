@@ -11,7 +11,7 @@ export const REALTIME_FACTOR = 3;
 const FRAMES_PER_SECOND = 25;
 const MAX_FRAMES = 9000;
 
-const EXT: Record<string, string> = { wav: 'wav', flac: 'flac', mp3: 'mp3' };
+const EXT: Record<string, string> = { wav: 'wav' };
 /** Model id in the official model card's example; used when /v1/models doesn't tell us otherwise. */
 export const DEFAULT_MODEL = 'MiniMaxAI/MiniMax-Music3';
 export const extFor = (format: string) => EXT[format] ?? format;

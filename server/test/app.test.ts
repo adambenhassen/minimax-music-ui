@@ -41,18 +41,18 @@ describe('app', () => {
   it('health probes /v1/models and reports queue state', async () => {
     const { app } = await setup();
     const res = await request(app).get('/api/health');
-    expect(res.body).toMatchObject({ upstreamReachable: true, ready: true, busy: false, queued: 0, formats: ['wav', 'flac', 'mp3'], models: ['minimax_ttm'] });
+    expect(res.body).toMatchObject({ upstreamReachable: true, ready: true, busy: false, queued: 0, formats: ['wav'], models: ['minimax_ttm'] });
     expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models']);
     await fake!.close(); fake = null;
     const down = await request(app).get('/api/health');
     expect(down.body.upstreamReachable).toBe(false);
     expect(down.body.error).toMatch(/unreachable/);
-    expect(down.body.formats).toEqual(['wav', 'flac', 'mp3']);
+    expect(down.body.formats).toEqual(['wav']);
   });
 
   it('generate → queue → speech → file: maps fields, serialises takes, forwards bearer', async () => {
     const { app, lib } = await setup({ renderMs: 120 }, 'sekrit');
-    const res = await request(app).post('/api/generate').send({ prompt: 'ambient', lyrics: '', duration: 10, format: 'flac', takes: 2, seed: 5 });
+    const res = await request(app).post('/api/generate').send({ prompt: 'ambient', lyrics: '', duration: 10, takes: 2, seed: 5 });
     expect(res.status).toBe(201);
     expect(res.body).toHaveLength(2);
     expect(res.body[0]).toMatchObject({ status: 'queued', seed: 5, lyrics: '[Instrumental]' });
@@ -66,18 +66,18 @@ describe('app', () => {
     expect(lib.get(a.id)?.progress).toBeGreaterThan(0);
     expect(lib.get(a.id)?.progress).toBeLessThan(1);
     await until(() => lib.get(b.id)?.status === 'done');
-    expect(lib.get(a.id)).toMatchObject({ status: 'done', file: `${a.id}.flac`, seed: 5, progress: 1, eta: 0 });
+    expect(lib.get(a.id)).toMatchObject({ status: 'done', file: `${a.id}.wav`, seed: 5, progress: 1, eta: 0 });
     const speech = fake!.requests.filter((r) => r.path === '/v1/audio/speech');
     expect(speech).toHaveLength(2);
     expect(speech[0].auth).toBe('Bearer sekrit');
-    expect(speech[0].body).toEqual({ model: 'minimax_ttm', input: '[Instrumental]', instructions: 'ambient', response_format: 'flac', max_new_tokens: 250, stream: false, seed: 5 });
+    expect(speech[0].body).toEqual({ model: 'minimax_ttm', input: '[Instrumental]', instructions: 'ambient', response_format: 'wav', max_new_tokens: 250, stream: false, seed: 5 });
     expect(speech[1].body).toMatchObject({ seed: 6 });
     const audio = await request(app).get(`/api/tracks/${a.id}/audio`);
     expect(audio.status).toBe(200);
-    expect(audio.headers['content-type']).toBe('audio/flac');
+    expect(audio.headers['content-type']).toBe('audio/wav');
     expect(Buffer.from(audio.body).toString()).toBe('RIFF-fake-audio');
     const dl = await request(app).get(`/api/tracks/${a.id}/audio?download`);
-    expect(dl.headers['content-disposition']).toMatch(/^attachment; filename=".+\.flac"$/);
+    expect(dl.headers['content-disposition']).toMatch(/^attachment; filename=".+\.wav"$/);
   });
 
   it('uses the model id advertised by /v1/models', async () => {
@@ -108,7 +108,7 @@ describe('app', () => {
   it('rejects bad input', async () => {
     const { app } = await setup();
     expect((await request(app).post('/api/generate').send({})).status).toBe(400);
-    expect((await request(app).post('/api/generate').send({ prompt: 'x', format: 'wav16' })).status).toBe(400);
+    expect((await request(app).post('/api/generate').send({ prompt: 'x', format: 'flac' })).status).toBe(400);
     expect((await request(app).post('/api/generate').send({ prompt: 'x', seed: 1.5 })).status).toBe(400);
   });
 
@@ -135,12 +135,12 @@ describe('app', () => {
     expect(lib.all()).toEqual([]);
     expect((await request(app).delete(`/api/tracks/${a.id}`)).status).toBe(404);
 
-    const done = await request(app).post('/api/generate').send({ prompt: 'y', format: 'mp3', title: 'ambient piano' });
+    const done = await request(app).post('/api/generate').send({ prompt: 'y', title: 'ambient piano' });
     const id = done.body[0].id;
     await until(() => lib.get(id)?.status === 'done');
-    await fs.access(path.join(tracksDir, `${id}.mp3`));
+    await fs.access(path.join(tracksDir, `${id}.wav`));
     expect((await request(app).delete(`/api/tracks/${id}`)).status).toBe(200);
-    await expect(fs.access(path.join(tracksDir, `${id}.mp3`))).rejects.toThrow();
+    await expect(fs.access(path.join(tracksDir, `${id}.wav`))).rejects.toThrow();
   });
 
   it('failOrphans marks leftover renders after a restart', async () => {
@@ -171,9 +171,9 @@ describe('app', () => {
     const { app } = await setup();
     expect((await request(app).post('/api/templates').send({ prompt: 'x' })).status).toBe(400);
     expect((await request(app).post('/api/templates').send({ name: 'Lo-fi' })).status).toBe(400);
-    const c = await request(app).post('/api/templates').send({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '', duration: 90, format: 'mp3' });
+    const c = await request(app).post('/api/templates').send({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '', duration: 90 });
     expect(c.status).toBe(201);
-    expect(c.body).toMatchObject({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '[Instrumental]', duration: 90, format: 'mp3' });
+    expect(c.body).toMatchObject({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '[Instrumental]', duration: 90, format: 'wav' });
     const u = await request(app).post('/api/templates').send({ name: 'lo-fi', prompt: 'lo-fi v2' });
     expect(u.status).toBe(200);
     expect(u.body.id).toBe(c.body.id);

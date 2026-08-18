@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { GenerateInput, Health, Track } from '../types';
 import { LyricsEditor } from './LyricsEditor';
 import { TemplatesMenu, type TemplateValues } from './TemplatesMenu';
 import { Chevron, Sparkle } from './Icons';
-import { FORMAT_LABEL } from '../lib/format';
 
 export const TEMPLATE_PROMPT = 'Genre: acoustic pop. BPM: 96. Key: C major. Warm and intimate, building gently into the chorus. Vocals: soft female lead, close and breathy, light stacked harmonies in the chorus. Arrangement: fingerpicked guitar and soft piano; brushed drums and upright bass enter in the chorus.';
 
@@ -26,7 +25,7 @@ export interface FormState {
 }
 
 export const DEFAULT_FORM: FormState = {
-  mode: 'simple', title: '', prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, instrumental: false, duration: 60, takes: 1, seed: '', format: 'flac',
+  mode: 'simple', title: '', prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, instrumental: false, duration: 60, takes: 1, seed: '', format: 'wav',
 };
 
 export function formFromTrack(t: Track): FormState {
@@ -56,11 +55,6 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => onFormChange({ ...form, [k]: v });
 
-  const formats = health?.formats?.length ? health.formats : ['wav', 'flac', 'mp3'];
-  useEffect(() => {
-    if (!formats.includes(form.format)) onFormChange({ ...form, format: formats.includes('flac') ? 'flac' : formats[0] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formats.join(',')]);
 
   const online = !!health?.upstreamReachable;
   const canSubmit = online && form.prompt.trim().length > 0 && !submitting;
@@ -128,7 +122,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
         <div className="flex items-center justify-between mb-1">
           <div className="label">{form.mode === 'simple' ? 'Song description' : 'Style of music'}</div>
           <TemplatesMenu
-            builtin={{ prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, duration: 60, format: 'flac' }}
+            builtin={{ prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, duration: 60, format: 'wav' }}
             current={{
               prompt: form.prompt.trim(),
               lyrics: form.instrumental ? '[Instrumental]' : form.lyrics.trim(),
@@ -189,16 +183,10 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
           <Chevron width={14} height={14} className={`transition-transform ${advanced ? 'rotate-90' : ''}`} /> Advanced
         </button>
         {advanced && (
-          <div className="grid grid-cols-2 gap-3 mt-2">
+          <div className="grid grid-cols-2 gap-3 mt-2 max-w-xs">
             <div>
               <div className="label mb-1">Seed</div>
               <input className="field font-mono" inputMode="numeric" value={form.seed} onChange={(e) => set('seed', e.target.value)} placeholder="random" />
-            </div>
-            <div>
-              <div className="label mb-1">Format</div>
-              <select className="field" value={form.format} onChange={(e) => set('format', e.target.value)}>
-                {formats.map((f) => <option key={f} value={f}>{FORMAT_LABEL[f] ?? f}</option>)}
-              </select>
             </div>
           </div>
         )}

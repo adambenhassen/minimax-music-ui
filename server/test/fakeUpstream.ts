@@ -45,9 +45,9 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
     if (b.stream === true) return res.status(400).json({ error: 'stream: true is not supported' });
     if (opts.strictModel && b.model !== (modelId ?? 'MiniMaxAI/MiniMax-Music3')) return res.status(404).json({ error: `model ${b.model} not found` });
     if (!b.instructions) return res.status(422).json({ detail: 'instructions required' });
-    if (!['wav', 'flac', 'mp3'].includes(b.response_format ?? 'wav')) return res.status(422).json({ detail: 'response_format must be wav, flac or mp3' });
+    if ((b.response_format ?? 'wav') !== 'wav') return res.status(422).json({ detail: 'response_format must be wav' });
     const timer = setTimeout(() => {
-      res.setHeader('Content-Type', b.response_format === 'mp3' ? 'audio/mpeg' : b.response_format === 'flac' ? 'audio/flac' : 'audio/wav');
+      res.setHeader('Content-Type', 'audio/wav');
       res.setHeader('X-Seed', String(b.seed ?? 4242));
       res.send(audio);
     }, renderMs);

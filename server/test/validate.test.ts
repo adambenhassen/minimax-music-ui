@@ -22,10 +22,10 @@ describe('normalizeGenerate', () => {
     expect(normalizeGenerate({ prompt: 'x', seed: '' }).seed).toBeNull();
     expect(normalizeGenerate({ prompt: 'x', seed: '42' }).seed).toBe(42);
   });
-  it('validates format against the speech route list', () => {
-    expect(() => normalizeGenerate({ prompt: 'x', format: 'ogg' })).toThrow(/format/);
-    expect(() => normalizeGenerate({ prompt: 'x', format: 'wav16' })).toThrow(/format/);
-    expect(normalizeGenerate({ prompt: 'x', format: 'flac' }).format).toBe('flac');
+  it('only wav is accepted (official route)', () => {
+    expect(() => normalizeGenerate({ prompt: 'x', format: 'flac' })).toThrow(/format/);
+    expect(() => normalizeGenerate({ prompt: 'x', format: 'mp3' })).toThrow(/format/);
+    expect(normalizeGenerate({ prompt: 'x', format: 'wav' }).format).toBe('wav');
     expect(normalizeGenerate({ prompt: 'x' }).format).toBe('wav');
   });
 });

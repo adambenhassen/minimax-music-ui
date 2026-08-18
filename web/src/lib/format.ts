@@ -19,4 +19,4 @@ export function fmtAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export const FORMAT_LABEL: Record<string, string> = { wav: 'WAV', flac: 'FLAC', mp3: 'MP3' };
+export const FORMAT_LABEL: Record<string, string> = { wav: 'WAV' };

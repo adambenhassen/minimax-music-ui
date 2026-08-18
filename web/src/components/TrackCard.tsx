@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { isInflight, type Track } from '../types';
 import { coverStyle } from '../lib/cover';
-import { fmtAgo, fmtTime, FORMAT_LABEL } from '../lib/format';
+import { fmtAgo, fmtTime } from '../lib/format';
 import { api } from '../api';
 import { Alert, Download, Pause, Play, Refresh, Reuse, Trash, X } from './Icons';
 import { ProgressDetail } from './ProgressDetail';
@@ -65,8 +65,6 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
 
           <div className="mt-2 flex items-center gap-2 text-[11px] text-zinc-500 tabular-nums">
             <span>{fmtTime(t.duration)}</span>
-            <span>·</span>
-            <span>{FORMAT_LABEL[t.format] ?? t.format}</span>
             {t.seed !== null && (<><span>·</span><span className="font-mono">seed {t.seed}</span></>)}
             <span>·</span>
             <span>{fmtAgo(t.createdAt)}</span>

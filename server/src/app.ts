@@ -20,7 +20,7 @@ export interface AppDeps {
   log?: (msg: string) => void;
 }
 
-const MIME: Record<string, string> = { wav: 'audio/wav', flac: 'audio/flac', mp3: 'audio/mpeg' };
+const MIME: Record<string, string> = { wav: 'audio/wav' };
 
 export function createApp(deps: AppDeps) {
   const { library, templates, settings, upstream, queue, tracksDir } = deps;

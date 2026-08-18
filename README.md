@@ -22,8 +22,8 @@
 
 ## Features
 
-- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed / output format (wav · flac · mp3).
-- **Templates** — a built-in default plus your own saved templates (style, lyrics, duration, format), stored server-side.
+- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed. Output is WAV, as the official route documents.
+- **Templates** — a built-in default plus your own saved templates (style, lyrics, duration), stored server-side.
 - **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the API reports no progress). Cancel while queued or rendering, retry on error.
 - **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Search, download, delete, "reuse settings".
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
@@ -36,7 +36,7 @@
 ```
 browser ──/api/*──▶ server/ (Express 5)  ──POST /v1/audio/speech──▶  MiniMax-Music3 server (sgl-omni, :8000)
                       │  one render at a time; streams the audio response to disk
-                      └─▶ data/library.json · data/templates.json · data/settings.json · data/tracks/*.wav|flac|mp3
+                      └─▶ data/library.json · data/templates.json · data/settings.json · data/tracks/*.wav
 ```
 
 | Package | What |
@@ -127,7 +127,7 @@ The server speaks the standard MiniMax-Music3 contract (the same one `sgl-omni s
 | Method | Path | |
 |---|---|---|
 | `GET` | `/v1/models` | Reachability probe. Optional — a 404 still counts as "up". If present, the first listed id is used as `model`; otherwise `MiniMaxAI/MiniMax-Music3` (the model card's example) |
-| `POST` | `/v1/audio/speech` | `{model: <from /v1/models or "MiniMaxAI/MiniMax-Music3">, input: <lyrics>, instructions: <style>, response_format: wav\|flac\|mp3, seed?, max_new_tokens: duration×25 (≤ 9000), stream: false}` → audio bytes; `X-Seed` header (if present) is stored |
+| `POST` | `/v1/audio/speech` | `{model: <from /v1/models or "MiniMaxAI/MiniMax-Music3">, input: <lyrics>, instructions: <style>, response_format: "wav", seed?, max_new_tokens: duration×25 (≤ 9000), stream: false}` → audio bytes; `X-Seed` header (if present) is stored |
 
 The call blocks for the whole render (roughly 2.5–3× the audio length), so the UI server queues renders one at a time and shows an estimated bar. Optional `Authorization: Bearer <key>` is sent when an API key is configured.
 
