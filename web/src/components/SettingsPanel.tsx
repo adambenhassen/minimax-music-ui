@@ -127,7 +127,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         {test && (
           <div className={`text-xs rounded-lg px-3 py-2 border ${test.ok ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-red-300 bg-red-500/10 border-red-500/30'}`}>
             {test.ok
-              ? <>Reachable at <span className="font-mono">{test.musicApi}</span>{test.health?.models?.length ? ` · models: ${test.health.models.join(', ')}` : ''}{test.health?.formats?.length ? ` · formats: ${test.health.formats.join(', ')}` : ''}</>
+              ? <>Reachable at <span className="font-mono">{test.musicApi}</span>{test.health?.models?.length ? ` · models: ${test.health.models.join(', ')}` : ''}{test.health?.formats?.length ? ` · formats: ${test.health.formats.join(', ')}` : ''}{test.health?.capabilities?.length ? ` · extras: ${test.health.capabilities.join(', ')}` : ''}</>
               : <>Could not reach <span className="font-mono">{test.musicApi}</span>: {test.error}</>}
           </div>
         )}

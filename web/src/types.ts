@@ -16,6 +16,8 @@ export interface Track {
   stage: string;
   eta: number | null;
   elapsed?: number | null;
+  /** seconds of audio on disk while a streamed render is running; null when the server can't stream */
+  renderedSeconds: number | null;
   error: string | null;
   file: string | null;
   createdAt: string;
@@ -29,6 +31,8 @@ export interface Health {
   queued: number;
   formats: string[];
   models?: string[];
+  /** optional upstream extras, e.g. "stream" (live progress + play-while-rendering) */
+  capabilities?: string[];
   error?: string;
 }
 
@@ -67,3 +71,4 @@ export interface SettingsTestResult {
 }
 
 export const isInflight = (t: Track) => t.status === 'queued' || t.status === 'running';
+export const isPlayable = (t: Track) => t.status === 'done' || (t.status === 'running' && (t.renderedSeconds ?? 0) > 0);

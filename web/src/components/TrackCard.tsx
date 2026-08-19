@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { isInflight, type Track } from '../types';
+import { isInflight, isPlayable, type Track } from '../types';
 import { coverStyle } from '../lib/cover';
 import { fmtAgo, fmtTime } from '../lib/format';
 import { api } from '../api';
@@ -21,24 +21,25 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
   const [open, setOpen] = useState(false);
   const inflight = isInflight(t);
   const done = t.status === 'done';
+  const playable = isPlayable(t);
   const err = t.status === 'error';
 
   return (
     <div className={`group rounded-xl border transition ${active ? 'border-accent/60 bg-ink-800' : 'border-ink-700 bg-ink-900 hover:bg-ink-800'} `}>
       <div className="flex gap-3 p-3">
         <button
-          onClick={() => done && onPlay(t)}
-          disabled={!done}
+          onClick={() => playable && onPlay(t)}
+          disabled={!playable}
           className="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden flex items-center justify-center text-white disabled:cursor-default"
           style={coverStyle(t.id)}
-          aria-label={done ? (active && playing ? 'Pause' : 'Play') : t.status}
+          aria-label={playable ? (active && playing ? 'Pause' : 'Play') : t.status}
         >
-          {done && (
+          {inflight && <span className={`absolute inset-0 bg-black/40 flex items-center justify-center text-[11px] font-mono tabular-nums ${playable ? 'group-hover:opacity-0 transition' : ''}`}>{Math.round(t.progress * 100)}%</span>}
+          {playable && (
             <span className={`absolute inset-0 flex items-center justify-center bg-black/30 transition ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
               {active && playing ? <Pause width={22} height={22} /> : <Play width={22} height={22} />}
             </span>
           )}
-          {inflight && <span className="absolute inset-0 bg-black/40 flex items-center justify-center text-[11px] font-mono tabular-nums">{Math.round(t.progress * 100)}%</span>}
           {err && <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-red-300"><Alert width={20} height={20} /></span>}
         </button>
 
