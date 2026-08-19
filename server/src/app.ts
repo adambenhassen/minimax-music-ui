@@ -31,9 +31,9 @@ export function createApp(deps: AppDeps) {
   app.get('/api/health', async (_req, res) => {
     try {
       const h = await upstream.health();
-      res.json({ upstreamReachable: true, ready: h.ready, models: h.models, busy: queue.busy, queued: queue.queued, formats: FORMATS });
+      res.json({ upstreamReachable: true, ready: h.ready, models: h.models, capabilities: h.capabilities, busy: queue.busy, queued: queue.queued, formats: FORMATS });
     } catch (err) {
-      res.json({ upstreamReachable: false, ready: false, busy: queue.busy, queued: queue.queued, formats: FORMATS, error: (err as Error).message });
+      res.json({ upstreamReachable: false, ready: false, capabilities: [], busy: queue.busy, queued: queue.queued, formats: FORMATS, error: (err as Error).message });
     }
   });
 
@@ -62,6 +62,7 @@ export function createApp(deps: AppDeps) {
           progress: 0,
           stage: 'queued',
           eta: null,
+          renderedSeconds: null,
           error: null,
           file: null,
           createdAt: new Date().toISOString(),

@@ -52,6 +52,7 @@ export type StreamEvent =
 export class UpstreamClient {
   private modelId: string | null = null;
   private capabilities: string[] = [];
+  private probed = false;
 
   constructor(private baseUrl: string, private apiKey: string | null = null) {}
 
@@ -60,6 +61,12 @@ export class UpstreamClient {
     this.apiKey = apiKey;
     this.modelId = null;
     this.capabilities = [];
+    this.probed = false;
+  }
+
+  /** Probe once (model id + capabilities) unless a health() call already did since configure(). */
+  async ensureProbed(): Promise<void> {
+    if (!this.probed) await this.health().catch(() => undefined);
   }
 
   /** true iff the last health probe advertised the optional `stream` extension (SSE progress + PCM windows). */
@@ -105,6 +112,7 @@ export class UpstreamClient {
     }
     const h = await this.probeHealth();
     this.capabilities = h.capabilities;
+    this.probed = true;
     return { ready: h.ready, models, capabilities: h.capabilities };
   }
 
@@ -122,7 +130,7 @@ export class UpstreamClient {
   }
 
   private async post(body: SpeechBody, stream: boolean, signal?: AbortSignal): Promise<Response> {
-    if (!this.modelId) await this.health().catch(() => undefined);
+    await this.ensureProbed();
     const payload = {
       model: this.model,
       input: body.lyrics,
@@ -210,7 +218,8 @@ export class UpstreamClient {
 /**
  * One-at-a-time render queue. The upstream call blocks for the whole render and reports no
  * progress, so we keep our own queue (for "queued" state + cancel) and estimate progress
- * from elapsed time.
+ * from elapsed time — unless the upstream advertises `stream`, in which case progress and
+ * audio windows arrive live and the track's file grows on disk while it renders.
  */
 export class RenderQueue {
   private queue: string[] = [];
@@ -260,27 +269,51 @@ export class RenderQueue {
     this.current = { id, ac };
     const startedAt = Date.now();
     const est = Math.max(5, track.duration * REALTIME_FACTOR);
-    await this.library.update(id, { status: 'running', stage: 'rendering', progress: 0, eta: est, elapsed: 0 });
-
-    const timer = setInterval(() => {
-      const elapsed = (Date.now() - startedAt) / 1000;
-      void this.library.update(id, { elapsed, progress: Math.min(0.95, elapsed / est), eta: Math.max(0, est - elapsed) });
-    }, this.tickMs);
+    await this.client.ensureProbed();
+    const streaming = this.client.canStream;
+    await this.library.update(id, { status: 'running', stage: streaming ? 'semantic' : 'rendering', progress: 0, eta: est, elapsed: 0, renderedSeconds: streaming ? 0 : null });
 
     const rel = `${id}.${extFor(track.format)}`;
     const dest = path.join(this.tracksDir, rel);
+    const elapsedS = () => (Date.now() - startedAt) / 1000;
+
+    // real progress state (streaming only)
+    let frac = 0, stage: 'semantic' | 'denoise' = 'semantic', rendered = 0, fileKnown = false, lastWrite = 0;
+    const onEvent = (e: StreamEvent) => {
+      if (e.type === 'progress') {
+        const part = e.total > 0 ? Math.min(1, e.done / e.total) : 0;
+        stage = e.stage;
+        frac = stage === 'semantic' ? 0.35 * part : 0.35 + 0.65 * part;
+        if (Date.now() - lastWrite < 250) return; // throttle store writes; audio events always write
+      } else {
+        rendered = e.secondsRendered;
+      }
+      lastWrite = Date.now();
+      const elapsed = elapsedS();
+      const eta = frac > 0.02 ? Math.max(0, elapsed / frac - elapsed) : Math.max(0, est - elapsed);
+      const patch: Partial<Track> = { stage, progress: Math.min(0.99, frac), eta, elapsed, renderedSeconds: rendered };
+      if (rendered > 0 && !fileKnown) { fileKnown = true; patch.file = rel; }
+      void this.library.update(id, patch);
+    };
+
+    const timer = setInterval(() => {
+      const elapsed = elapsedS();
+      if (streaming) void this.library.update(id, { elapsed });
+      else void this.library.update(id, { elapsed, progress: Math.min(0.95, elapsed / est), eta: Math.max(0, est - elapsed) });
+    }, this.tickMs);
+
     try {
-      const { seed } = await this.client.speechToFile(
-        { prompt: track.prompt, lyrics: track.lyrics, duration: track.duration, seed: track.seed, format: track.format },
-        dest,
-        ac.signal,
-      );
+      const body = { prompt: track.prompt, lyrics: track.lyrics, duration: track.duration, seed: track.seed, format: track.format };
+      const { seed } = streaming
+        ? await this.client.speechStream(body, dest, onEvent, ac.signal)
+        : await this.client.speechToFile(body, dest, ac.signal);
       clearInterval(timer);
       await this.library.update(id, {
         status: 'done', stage: 'done', progress: 1, eta: 0,
-        elapsed: (Date.now() - startedAt) / 1000,
+        elapsed: elapsedS(),
         seed: seed ?? track.seed,
         file: rel,
+        renderedSeconds: streaming ? rendered : null,
         finishedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -291,7 +324,8 @@ export class RenderQueue {
         await this.library.update(id, {
           status: 'error', stage: 'error',
           error: aborted ? 'cancelled' : (err as Error).message,
-          elapsed: (Date.now() - startedAt) / 1000,
+          elapsed: elapsedS(),
+          file: null, renderedSeconds: null,
           finishedAt: new Date().toISOString(),
         });
       }

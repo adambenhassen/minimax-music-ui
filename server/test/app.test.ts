@@ -41,7 +41,7 @@ describe('app', () => {
   it('health probes /v1/models and reports queue state', async () => {
     const { app } = await setup();
     const res = await request(app).get('/api/health');
-    expect(res.body).toMatchObject({ upstreamReachable: true, ready: true, busy: false, queued: 0, formats: ['wav'], models: ['minimax_ttm'] });
+    expect(res.body).toMatchObject({ upstreamReachable: true, ready: true, busy: false, queued: 0, formats: ['wav'], models: ['minimax_ttm'], capabilities: [] });
     expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models']);
     await fake!.close(); fake = null;
     const down = await request(app).get('/api/health');
@@ -221,5 +221,45 @@ describe('app', () => {
     const bad = await request(app).post('/api/settings/test').send({ musicApi: 'http://127.0.0.1:1' });
     expect(bad.body.ok).toBe(false);
     expect((await request(app).get('/api/settings')).body.musicApi).toBe('http://127.0.0.1:7862');
+  });
+
+  it('streams when advertised: real stage/progress/renderedSeconds, file appears early, valid WAV at the end', async () => {
+    const { app, lib, tracksDir } = await setup({ stream: { windows: 4, secondsPerWindow: 0.1, windowMs: 40 } });
+    const h = await request(app).get('/api/health');
+    expect(h.body.capabilities).toEqual(['stream']);
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', duration: 10 });
+    const id = res.body[0].id as string;
+    await until(() => lib.get(id)?.stage === 'semantic');
+    await until(() => (lib.get(id)?.renderedSeconds ?? 0) > 0);
+    const mid = lib.get(id)!;
+    expect(mid.status).toBe('running');
+    expect(mid.stage).toBe('denoise');
+    expect(mid.file).toBe(`${id}.wav`);
+    expect(mid.progress).toBeGreaterThan(0.35);
+    await until(() => lib.get(id)?.status === 'done');
+    const t = lib.get(id)!;
+    expect(t.renderedSeconds).toBeCloseTo(0.4, 1);
+    expect(t.progress).toBe(1);
+    const wav = await fs.readFile(path.join(tracksDir, t.file!));
+    expect(wav.readUInt32LE(40)).toBe(wav.length - 44);
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: true });
+  });
+
+  it('never sends stream:true to servers that do not advertise it', async () => {
+    const { app, lib } = await setup({ loading: false });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    await until(() => lib.get(res.body[0].id)?.status === 'done');
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
+    expect(lib.get(res.body[0].id)?.renderedSeconds).toBeNull();
+  });
+
+  it('cancel mid-stream aborts upstream and marks cancelled', async () => {
+    const { app, lib } = await setup({ stream: { windows: 50, windowMs: 40 } });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const id = res.body[0].id as string;
+    await until(() => (lib.get(id)?.renderedSeconds ?? 0) > 0);
+    await request(app).delete(`/api/tracks/${id}`);
+    await until(() => fake!.requests.find((r) => r.path === '/v1/audio/speech')?.aborted === true);
+    expect(lib.get(id)).toBeUndefined();
   });
 });

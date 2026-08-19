@@ -11,13 +11,16 @@ export interface Track {
   seed: number | null;
   format: string;
   status: TrackStatus;
-  /** 0..1 — estimated while rendering (the API is blocking and reports no progress) */
+  /** 0..1 — real when the upstream streams progress, else estimated from elapsed time */
   progress: number;
+  /** 'queued' | 'rendering' (estimated) | 'semantic' | 'denoise' (real) | 'done' | 'error' */
   stage: string;
   /** estimated seconds remaining */
   eta: number | null;
   /** seconds since the render started */
   elapsed?: number | null;
+  /** seconds of audio already on disk while streaming; null when the server can't stream */
+  renderedSeconds: number | null;
   error: string | null;
   file: string | null;
   createdAt: string;
