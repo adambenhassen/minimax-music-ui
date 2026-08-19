@@ -39,7 +39,7 @@ export const DEFAULT_FORM: FormState = {
 
 export function formFromTrack(t: Track): FormState {
   return {
-    mode: 'custom',
+    mode: 'simple',
     title: t.title,
     prompt: t.prompt,
     lyrics: t.lyrics === '[Instrumental]' ? '' : t.lyrics,
@@ -95,11 +95,13 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
     }
   };
 
-  const modeBtn = (m: FormState['mode'], label: string) => (
+  const modeBtn = (m: FormState['mode'], label: string, disabled = false) => (
     <button
       type="button"
+      disabled={disabled}
+      title={disabled ? 'Coming soon' : undefined}
       onClick={() => set('mode', m)}
-      className={`px-3 py-1 rounded-md text-xs font-medium transition ${form.mode === m ? 'bg-ink-600 text-white' : 'text-zinc-400 hover:text-white'}`}
+      className={`px-3 py-1 rounded-md text-xs font-medium transition ${form.mode === m ? 'bg-ink-600 text-white' : 'text-zinc-400 hover:text-white'} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-400`}
     >
       {label}
     </button>
@@ -111,7 +113,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
       <div className="flex items-center justify-between">
         <div className="inline-flex bg-ink-800 border border-ink-600 rounded-lg p-0.5">
           {modeBtn('simple', 'Simple')}
-          {modeBtn('custom', 'Custom')}
+          {modeBtn('custom', 'Custom', true)}
         </div>
         <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer select-none">
           <span>Instrumental</span>

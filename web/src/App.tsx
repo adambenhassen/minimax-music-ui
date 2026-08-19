@@ -15,7 +15,7 @@ const FORM_KEY = 'minimax-music-ui.form';
 function loadForm(): FormState {
   try {
     const raw = localStorage.getItem(FORM_KEY);
-    return raw ? { ...DEFAULT_FORM, ...JSON.parse(raw) } : DEFAULT_FORM;
+    return raw ? { ...DEFAULT_FORM, ...JSON.parse(raw), mode: 'simple' } : DEFAULT_FORM; // Custom mode is disabled for now
   } catch {
     return DEFAULT_FORM;
   }
