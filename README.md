@@ -22,11 +22,11 @@
 
 ## Features
 
-- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed. Output is WAV, as the official route documents.
+- **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed. Output is WAV, as the official route documents (FLAC/MP3 appear in the selector but disabled).
 - **Templates** — a built-in default plus your own saved templates (style, lyrics, duration), stored server-side.
-- **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the official API reports no progress). Cancel while queued or rendering, retry on error.
-- **Live progress + play while rendering** — when the server is the bundled `inference/server.py` (it advertises `capabilities: ["stream"]` on `/health`), progress is real for every render (Generating → Rendering, ETA from the measured rate). Tick *Play while rendering* under Advanced and the audio is streamed as it's rendered too: press play on a track that is still rendering, the player buffers when it catches up with the renderer and swaps to the final file seamlessly. Stock `sgl-omni` keeps the estimated bar.
-- **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Search, download, delete, "reuse settings".
+- **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the official API reports no progress). Cancel while queued or rendering, retry on error. Queued tracks survive a UI-server restart (they are re-queued in order); a render that was in flight is marked as interrupted.
+- **Live progress + play while rendering** — when the server is the bundled `inference/server.py` (it advertises `capabilities: ["stream"]` on `/health`), progress is real for every render (Generating → Rendering, ETA from the measured rate). Tick *Play while rendering* under Advanced and the audio is streamed as it's rendered too: press play on a track that is still rendering, the waveform grows as windows arrive, the player buffers when it catches up with the renderer and swaps to the final file seamlessly. Stock `sgl-omni` keeps the estimated bar.
+- **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Cards show duration, seed and how long the render took. Search, download, delete, "reuse settings".
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
 - **Health pill** — offline / loading model / idle (· live progress) / rendering · N queued (probes `GET /v1/models` and the optional `GET /health`).
 - **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields.
@@ -35,8 +35,9 @@
 ## Architecture
 
 ```
-browser ──/api/*──▶ server/ (Express 5)  ──POST /v1/audio/speech──▶  MiniMax-Music3 server (sgl-omni, :8000)
-                      │  one render at a time; streams the audio response to disk
+browser ──/api/*──▶ server/ (Express 5)  ──POST /v1/audio/speech──▶  MiniMax-Music3 server
+                      │  one render at a time; audio response → disk       sgl-omni serve (:8000)  — blocking WAV
+                      │  or SSE progress + PCM windows when advertised     inference/server.py (:7862) — + stream
                       └─▶ data/library.json · data/templates.json · data/settings.json · data/tracks/*.wav
 ```
 
@@ -110,6 +111,7 @@ The fake upstream (`server/test/fakeUpstream.ts`) implements `GET /v1/models` an
 FAKE_AUDIO=/path/to/real.wav FAKE_RENDER_MS=8000 npm run fake -w server
 FAKE_LOADING=1 npm run fake -w server   # exposes /health → 503, UI shows "Loading model…"
 FAKE_STREAM=1 npm run fake -w server    # advertises streaming; SSE progress + 4 s PCM windows
+FAKE_PORT=7998 npm run fake -w server   # listen elsewhere (default 7999)
 ```
 
 ## UI server API
@@ -138,6 +140,15 @@ The server speaks the standard MiniMax-Music3 contract (the same one `sgl-omni s
 | `POST` | `/v1/audio/speech` | `{model: <from /v1/models or "MiniMaxAI/MiniMax-Music3">, input: <lyrics>, instructions: <style>, response_format: "wav", seed?, max_new_tokens: duration×25 (≤ 9000), stream: false}` → audio bytes; `X-Seed` header (if present) is stored |
 
 The call blocks for the whole render (roughly 2.5–3× the audio length), so the UI server queues renders one at a time and shows an estimated bar. Optional `Authorization: Bearer <key>` is sent when an API key is configured.
+
+Two optional extensions are used only when the server offers them, and their absence changes nothing:
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/health` | Probed once per connection. `503` → "Loading model…" (Create disabled); `200 {capabilities: ["stream"]}` → the UI server sends `stream: true` |
+| `POST` | `/v1/audio/speech` + `stream: true` | `text/event-stream` of `progress {stage: semantic\|denoise, done, total, secondsRendered}`, `audio {pcm, samples, sampleRate, channels}` windows (only requested when *Play while rendering* is on; `stream_audio: false` otherwise), then `done {seed}` or `error {message}`. Closing the connection cancels the render |
+
+The bundled [`inference/server.py`](inference/) implements both; see its [README](inference/README.md).
 
 ## Contributing
 
