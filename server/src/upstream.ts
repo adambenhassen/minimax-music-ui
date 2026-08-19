@@ -5,6 +5,8 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import type { Library } from './library.js';
 import type { Track } from './types.js';
+import { parseSse } from './sse.js';
+import { patchWavSizes, wavHeader, WAV_HEADER_BYTES } from './wav.js';
 
 /** MiniMax-Music3 renders ~2.5–3× slower than realtime; drives the estimated progress bar. */
 export const REALTIME_FACTOR = 3;
@@ -34,7 +36,13 @@ export interface UpstreamHealth {
   ready: boolean;
   /** ids from GET /v1/models; empty when the server doesn't expose that route */
   models: string[];
+  /** optional extras advertised by GET /health (e.g. "stream"); empty for stock servers */
+  capabilities: string[];
 }
+
+export type StreamEvent =
+  | { type: 'progress'; stage: 'semantic' | 'denoise'; done: number; total: number }
+  | { type: 'audio'; secondsRendered: number };
 
 /**
  * Client for the MiniMax-Music3 server contract (same shape as `sgl-omni serve`):
@@ -43,6 +51,7 @@ export interface UpstreamHealth {
  */
 export class UpstreamClient {
   private modelId: string | null = null;
+  private capabilities: string[] = [];
 
   constructor(private baseUrl: string, private apiKey: string | null = null) {}
 
@@ -50,6 +59,12 @@ export class UpstreamClient {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
     this.modelId = null;
+    this.capabilities = [];
+  }
+
+  /** true iff the last health probe advertised the optional `stream` extension (SSE progress + PCM windows). */
+  get canStream(): boolean {
+    return this.capabilities.includes('stream');
   }
 
   /** Model id sent in requests: whatever /v1/models advertised, else the official default. */
@@ -72,7 +87,7 @@ export class UpstreamClient {
    * means this build doesn't expose the models list (the official card only documents
    * /v1/audio/speech). Only a failed connection counts as unreachable.
    * `ready` comes from an optional GET /health: a 503 means the model is still loading; anything
-   * else (404 on stock sgl-omni, timeouts) counts as ready.
+   * else (404 on stock sgl-omni, timeouts) counts as ready. Its JSON may list `capabilities`.
    */
   async health(): Promise<UpstreamHealth> {
     let res: Response;
@@ -88,21 +103,25 @@ export class UpstreamClient {
       models = (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
       if (models.length) this.modelId = models[0];
     }
-    return { ready: await this.ready(), models };
+    const h = await this.probeHealth();
+    this.capabilities = h.capabilities;
+    return { ready: h.ready, models, capabilities: h.capabilities };
   }
 
-  /** false only when GET /health answers 503 (model still loading); the route is optional. */
-  private async ready(): Promise<boolean> {
+  /** GET /health is optional: 503 = model still loading; its JSON may list `capabilities`. */
+  private async probeHealth(): Promise<{ ready: boolean; capabilities: string[] }> {
     try {
       const res = await fetch(`${this.baseUrl}/health`, { headers: this.headers() });
-      return res.status !== 503;
+      if (res.status === 503) return { ready: false, capabilities: [] };
+      const json = (await res.json().catch(() => ({}))) as { capabilities?: unknown };
+      const caps = Array.isArray(json.capabilities) ? json.capabilities.filter((c): c is string => typeof c === 'string') : [];
+      return { ready: true, capabilities: caps };
     } catch {
-      return true;
+      return { ready: true, capabilities: [] };
     }
   }
 
-  /** POST /v1/audio/speech, streaming the audio into `dest`. Returns the seed the server reports (X-Seed), if any. */
-  async speechToFile(body: SpeechBody, dest: string, signal?: AbortSignal): Promise<{ seed: number | null }> {
+  private async post(body: SpeechBody, stream: boolean, signal?: AbortSignal): Promise<Response> {
     if (!this.modelId) await this.health().catch(() => undefined);
     const payload = {
       model: this.model,
@@ -110,7 +129,7 @@ export class UpstreamClient {
       instructions: body.prompt,
       response_format: body.format,
       max_new_tokens: Math.min(MAX_FRAMES, Math.max(1, Math.round(body.duration * FRAMES_PER_SECOND))),
-      stream: false,
+      stream,
       ...(body.seed !== null ? { seed: body.seed } : {}),
     };
     let res: Response;
@@ -129,11 +148,61 @@ export class UpstreamClient {
       const text = await res.text().catch(() => '');
       throw new UpstreamError(`upstream ${res.status} on /v1/audio/speech: ${text.slice(0, 300)}`, res.status);
     }
+    return res;
+  }
+
+  private static seedOf(res: Response): number | null {
+    const h = res.headers.get('x-seed');
+    return h !== null && h !== '' && Number.isFinite(Number(h)) ? Number(h) : null;
+  }
+
+  /** POST /v1/audio/speech, streaming the audio into `dest`. Returns the seed the server reports (X-Seed), if any. */
+  async speechToFile(body: SpeechBody, dest: string, signal?: AbortSignal): Promise<{ seed: number | null }> {
+    const res = await this.post(body, false, signal);
     if (!res.body) throw new UpstreamError('empty audio body');
     await fsp.mkdir(path.dirname(dest), { recursive: true });
     await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), fs.createWriteStream(dest), { signal });
-    const seedHeader = res.headers.get('x-seed');
-    const seed = seedHeader !== null && seedHeader !== '' && Number.isFinite(Number(seedHeader)) ? Number(seedHeader) : null;
+    return { seed: UpstreamClient.seedOf(res) };
+  }
+
+  /** stream:true variant (only when `canStream`): SSE with progress + PCM windows, assembled into a WAV at `dest`. */
+  async speechStream(body: SpeechBody, dest: string, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<{ seed: number | null }> {
+    const res = await this.post(body, true, signal);
+    if (!(res.headers.get('content-type') ?? '').includes('text/event-stream') || !res.body) {
+      throw new UpstreamError(`upstream did not stream (content-type ${res.headers.get('content-type') ?? 'none'})`, res.status);
+    }
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    const fd = await fsp.open(dest, 'w');
+    let header: Buffer | null = null;
+    let dataBytes = 0, samples = 0, sampleRate = 44100, channels = 2, finished = false;
+    let seed = UpstreamClient.seedOf(res);
+    try {
+      for await (const ev of parseSse(res.body as ReadableStream<Uint8Array>)) {
+        const d = JSON.parse(ev.data) as Record<string, unknown>;
+        if (ev.event === 'progress') {
+          onEvent({ type: 'progress', stage: d.stage === 'denoise' ? 'denoise' : 'semantic', done: Number(d.done) || 0, total: Number(d.total) || 0 });
+        } else if (ev.event === 'audio') {
+          if (typeof d.sampleRate === 'number') sampleRate = d.sampleRate;
+          if (typeof d.channels === 'number') channels = d.channels;
+          const pcm = Buffer.from(String(d.pcm ?? ''), 'base64');
+          if (!header) { header = wavHeader(sampleRate, channels, 0); await fd.write(header, 0, WAV_HEADER_BYTES, 0); }
+          await fd.write(pcm, 0, pcm.length, WAV_HEADER_BYTES + dataBytes);
+          dataBytes += pcm.length;
+          samples += pcm.length / (2 * channels);
+          onEvent({ type: 'audio', secondsRendered: samples / sampleRate });
+        } else if (ev.event === 'done') {
+          if (typeof d.seed === 'number') seed = d.seed;
+          finished = true;
+        } else if (ev.event === 'error') {
+          throw new UpstreamError(`upstream render failed: ${String(d.message ?? 'unknown error')}`);
+        }
+      }
+      if (!finished) throw new UpstreamError('upstream stream ended before done');
+      if (!header) throw new UpstreamError('upstream stream carried no audio');
+      await fd.write(patchWavSizes(header, WAV_HEADER_BYTES + dataBytes), 0, WAV_HEADER_BYTES, 0);
+    } finally {
+      await fd.close();
+    }
     return { seed };
   }
 }
