@@ -24,7 +24,10 @@ If the Hub asks you to accept the model's terms, do that on the model page and l
 | Route | |
 |---|---|
 | `POST /v1/audio/speech` | `{model, input (lyrics), instructions (style), response_format: "wav", seed?, max_new_tokens (25 fps frames, ≤ 9000), stream: false}` → 44.1 kHz stereo 16-bit WAV, seed used in `X-Seed` |
+| `POST /v1/audio/speech` + `stream: true` | *this server only* — `text/event-stream`: `progress {stage: semantic\|denoise, done, total, secondsRendered}`, `audio {pcm (base64 int16 stereo), samples, sampleRate, channels}` per denoised ~8 s window, then `done {seed}` or `error {message}`; disconnecting cancels the render |
 | `GET /v1/models` | the one model (`minimax_ttm`) |
-| `GET /health` | 200 once loaded, 503 while loading |
+| `GET /health` | `200 {"status":"ready","capabilities":["stream"]}` once loaded, 503 while loading |
+
+The UI probes `/health` for `capabilities` and uses `stream: true` for live progress and play-while-rendering; anything written against upstream's plain contract keeps working unchanged.
 
 Options: `--offload` (CPU-offload weights, ~22 GB VRAM, slower), `--api-key <key>` (required in `Authorization: Bearer` or `X-API-Key`; set it if you bind to anything other than 127.0.0.1). Renders run one at a time, ~3× slower than realtime on an RTX 3090.
