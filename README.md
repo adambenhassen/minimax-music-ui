@@ -9,11 +9,18 @@
 </p>
 
 <p align="center">
+  <a href="https://demo-minimax-music.adambh.dev"><img alt="Live demo" src="https://img.shields.io/badge/live%20demo-demo--minimax--music.adambh.dev-ff5c8a?logo=cloudflare&logoColor=white"></a>
+  <a href="https://github.com/adambenhassen/minimax-music-ui/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/adambenhassen/minimax-music-ui/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/adambenhassen/minimax-music-ui/pkgs/container/minimax-music-ui"><img alt="GHCR" src="https://img.shields.io/badge/ghcr.io-minimax--music--ui-2496ed?logo=docker&logoColor=white"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-ff5c8a.svg"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white">
   <img alt="React 19" src="https://img.shields.io/badge/react-19-149eca?logo=react&logoColor=white">
   <img alt="Vite 8" src="https://img.shields.io/badge/vite-8-646cff?logo=vite&logoColor=white">
   <img alt="Tailwind CSS 4" src="https://img.shields.io/badge/tailwind-4-06b6d4?logo=tailwindcss&logoColor=white">
+</p>
+
+<p align="center">
+  <b>Try it:</b> <a href="https://demo-minimax-music.adambh.dev">demo-minimax-music.adambh.dev</a> — a read-only demo with pre-rendered songs (Create simulates a render).
 </p>
 
 <p align="center">
@@ -71,6 +78,14 @@ MUSIC_API=http://<inference-host>:8000 npm start
 Then open **Settings** in the sidebar and enter the inference server URL — or set `MUSIC_API` in the environment (see below).
 
 ### Docker
+
+Prebuilt multi-arch images (amd64 + arm64) are published to GitHub Container Registry on every release:
+
+```bash
+docker run -d -p 8787:8787 -v "$PWD/data:/data" -e MUSIC_API=http://<inference-host>:8000 ghcr.io/adambenhassen/minimax-music-ui:latest
+```
+
+Or build locally:
 
 ```bash
 docker compose up -d --build           # → http://localhost:8787, library persisted in ./data
