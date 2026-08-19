@@ -1,7 +1,9 @@
+export const BUCKETS = 160;
+
 const cache = new Map<string, Promise<number[]>>();
 
 /** Decode audio at `url` and return `buckets` normalised peak values (0..1). Cached per url. */
-export function loadPeaks(url: string, buckets = 160): Promise<number[]> {
+export function loadPeaks(url: string, buckets = BUCKETS): Promise<number[]> {
   const key = `${url}#${buckets}`;
   let p = cache.get(key);
   if (!p) {
