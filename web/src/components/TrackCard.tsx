@@ -3,7 +3,7 @@ import { isInflight, isPlayable, type Track } from '../types';
 import { coverStyle } from '../lib/cover';
 import { fmtAgo, fmtTime } from '../lib/format';
 import { api } from '../api';
-import { Alert, Download, Pause, Play, Refresh, Reuse, Trash, X } from './Icons';
+import { Alert, Download, Pause, Play, Refresh, Reuse, Spinner, Trash, X } from './Icons';
 import { ProgressDetail } from './ProgressDetail';
 
 interface Props {
@@ -22,6 +22,7 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
   const inflight = isInflight(t);
   const done = t.status === 'done';
   const playable = isPlayable(t);
+  const armed = active && playing && t.status === 'running' && (t.renderedSeconds ?? 0) === 0; // play pressed, no audio yet
   const err = t.status === 'error';
 
   return (
@@ -37,7 +38,7 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
           {inflight && <span className={`absolute inset-0 bg-black/40 flex items-center justify-center text-[11px] font-mono tabular-nums ${playable ? 'group-hover:opacity-0 transition' : ''}`}>{Math.round(t.progress * 100)}%</span>}
           {playable && (
             <span className={`absolute inset-0 flex items-center justify-center bg-black/30 transition ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-              {active && playing ? <Pause width={22} height={22} /> : <Play width={22} height={22} />}
+              {armed ? <Spinner width={22} height={22} /> : active && playing ? <Pause width={22} height={22} /> : <Play width={22} height={22} />}
             </span>
           )}
           {err && <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-red-300"><Alert width={20} height={20} /></span>}

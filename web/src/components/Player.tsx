@@ -4,7 +4,7 @@ import { api } from '../api';
 import { coverStyle } from '../lib/cover';
 import { fmtTime } from '../lib/format';
 import { Waveform } from './Waveform';
-import { Download, Next, Pause, Play, Prev } from './Icons';
+import { Download, Next, Pause, Play, Prev, Spinner } from './Icons';
 
 interface Props {
   track: Track | null;
@@ -122,8 +122,9 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
           onClick={() => onPlayingChange(!playing)}
           disabled={!track}
           aria-label={playing ? 'Pause' : 'Play'}
+          title={starved ? subtitle : undefined}
         >
-          {playing ? <Pause width={18} height={18} /> : <Play width={18} height={18} className="translate-x-[1px]" />}
+          {playing && starved ? <Spinner width={18} height={18} /> : playing ? <Pause width={18} height={18} /> : <Play width={18} height={18} className="translate-x-[1px]" />}
         </button>
         <button className="icon-btn" onClick={onNext} disabled={!track} aria-label="Next"><Next width={18} height={18} /></button>
       </div>
