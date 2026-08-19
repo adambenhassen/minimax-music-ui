@@ -213,7 +213,7 @@ describe('app', () => {
     const put = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/`, apiKey: 'sekrit' });
     expect(put.body).toMatchObject({ musicApi: fake!.url, apiKeySet: true, source: { musicApi: 'settings', apiKey: 'settings' } });
     expect(upstream.url).toBe(fake!.url);
-    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toEqual({ musicApi: fake!.url, apiKey: 'sekrit' });
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toEqual({ musicApi: fake!.url, apiKey: 'sekrit', compat: false });
     await request(app).get('/api/health');
     expect(fake!.requests.at(-1)?.auth).toBe('Bearer sekrit');
     expect((await request(app).put('/api/settings').send({ apiKey: '' })).body.apiKeySet).toBe(false);
@@ -273,6 +273,22 @@ describe('app', () => {
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
     expect(lib.get(res.body[0].id)?.renderedSeconds).toBeNull();
+  });
+
+  it('compat mode ignores /health and never streams, even when the server advertises it', async () => {
+    const { app, lib } = await setup({ stream: { windows: 3, windowMs: 40 } }, null, { musicApi: null, apiKey: null });
+    await request(app).put('/api/settings').send({ musicApi: fake!.url });
+    expect((await request(app).get('/api/health')).body).toMatchObject({ ready: true, capabilities: ['stream'] });
+    const put = await request(app).put('/api/settings').send({ compat: true });
+    expect(put.status).toBe(200);
+    expect(put.body.compat).toBe(true);
+    fake!.requests.length = 0;
+    expect((await request(app).get('/api/health')).body).toMatchObject({ ready: true, capabilities: [] });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
+    await until(() => lib.get(res.body[0].id)?.status === 'done');
+    expect(fake!.requests.map((r) => r.path)).not.toContain('/health');
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
+    expect((await request(app).get('/api/settings')).body.compat).toBe(true);
   });
 
   it('cancel mid-stream aborts upstream and marks cancelled', async () => {

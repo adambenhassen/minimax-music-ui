@@ -62,6 +62,8 @@ export interface Template {
 export interface Settings {
   musicApi: string;
   apiKeySet: boolean;
+  /** debug/testing: treat the server as stock sgl-omni (no /health, no streaming) */
+  compat: boolean;
   source: { musicApi: 'env' | 'settings' | 'default'; apiKey: 'env' | 'settings' | 'none' };
   locked: { musicApi: boolean; apiKey: boolean };
 }

@@ -5,6 +5,8 @@ import { ValidationError } from './validate.js';
 export interface StoredSettings {
   musicApi: string | null;
   apiKey: string | null;
+  /** debug/testing: behave as if the upstream were stock sgl-omni — skip /health, never stream */
+  compat: boolean;
 }
 
 export interface EnvOverrides {
@@ -15,6 +17,7 @@ export interface EnvOverrides {
 export interface EffectiveUpstream {
   musicApi: string;
   apiKey: string | null;
+  compat: boolean;
   /** where each value came from */
   source: { musicApi: 'env' | 'settings' | 'default'; apiKey: 'env' | 'settings' | 'none' };
 }
@@ -36,7 +39,7 @@ export function normalizeMusicApi(v: unknown): string {
 
 /** Persists user-editable upstream settings; env vars always win over stored values. */
 export class SettingsStore {
-  private stored: StoredSettings = { musicApi: null, apiKey: null };
+  private stored: StoredSettings = { musicApi: null, apiKey: null, compat: false };
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string, private readonly env: EnvOverrides) {}
@@ -47,6 +50,7 @@ export class SettingsStore {
       this.stored = {
         musicApi: typeof raw.musicApi === 'string' && raw.musicApi ? raw.musicApi : null,
         apiKey: typeof raw.apiKey === 'string' && raw.apiKey ? raw.apiKey : null,
+        compat: raw.compat === true,
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
@@ -59,6 +63,7 @@ export class SettingsStore {
     return {
       musicApi,
       apiKey,
+      compat: this.stored.compat,
       source: {
         musicApi: this.env.musicApi ? 'env' : this.stored.musicApi ? 'settings' : 'default',
         apiKey: this.env.apiKey ? 'env' : this.stored.apiKey ? 'settings' : 'none',
@@ -72,13 +77,14 @@ export class SettingsStore {
     return {
       musicApi: e.musicApi,
       apiKeySet: !!e.apiKey,
+      compat: e.compat,
       source: e.source,
       locked: { musicApi: this.env.musicApi !== null, apiKey: this.env.apiKey !== null },
     };
   }
 
   /** Update stored values. `apiKey: ""` clears it; `undefined` leaves it alone. */
-  async update(patch: { musicApi?: unknown; apiKey?: unknown }): Promise<void> {
+  async update(patch: { musicApi?: unknown; apiKey?: unknown; compat?: unknown }): Promise<void> {
     if (patch.musicApi !== undefined) {
       if (this.env.musicApi !== null) throw new ValidationError('MUSIC_API is set in the environment and cannot be changed here');
       this.stored.musicApi = normalizeMusicApi(patch.musicApi);
@@ -87,6 +93,10 @@ export class SettingsStore {
       if (this.env.apiKey !== null) throw new ValidationError('MUSIC_API_KEY is set in the environment and cannot be changed here');
       if (typeof patch.apiKey !== 'string') throw new ValidationError('apiKey must be a string');
       this.stored.apiKey = patch.apiKey.trim() || null;
+    }
+    if (patch.compat !== undefined) {
+      if (typeof patch.compat !== 'boolean') throw new ValidationError('compat must be a boolean');
+      this.stored.compat = patch.compat;
     }
     await this.persist();
   }

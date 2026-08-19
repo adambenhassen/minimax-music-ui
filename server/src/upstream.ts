@@ -54,11 +54,13 @@ export class UpstreamClient {
   private capabilities: string[] = [];
   private probed = false;
 
-  constructor(private baseUrl: string, private apiKey: string | null = null) {}
+  /** `compat`: pretend the server is stock sgl-omni — skip GET /health, so no loading state and no extras. */
+  constructor(private baseUrl: string, private apiKey: string | null = null, private compat = false) {}
 
-  configure(baseUrl: string, apiKey: string | null): void {
+  configure(baseUrl: string, apiKey: string | null, compat = false): void {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
+    this.compat = compat;
     this.modelId = null;
     this.capabilities = [];
     this.probed = false;
@@ -110,7 +112,7 @@ export class UpstreamClient {
       models = (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
       if (models.length) this.modelId = models[0];
     }
-    const h = await this.probeHealth();
+    const h = this.compat ? { ready: true, capabilities: [] } : await this.probeHealth();
     this.capabilities = h.capabilities;
     this.probed = true;
     return { ready: h.ready, models, capabilities: h.capabilities };

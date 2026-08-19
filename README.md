@@ -29,7 +29,7 @@
 - **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Cards show duration, seed and how long the render took. Search, download, delete, "reuse settings".
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
 - **Health pill** — offline / loading model / idle (· live progress) / rendering · N queued (probes `GET /v1/models` and the optional `GET /health`).
-- **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields.
+- **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields. A *Compatibility mode* debug switch makes the UI treat any server as stock `sgl-omni` (no `/health`, no streaming) to check the plain contract still works.
 - Responsive down to phone width. No external services; everything runs on your machine or tailnet.
 
 ## Architecture
@@ -126,8 +126,8 @@ FAKE_PORT=7998 npm run fake -w server   # listen elsewhere (default 7999)
 | `GET` | `/api/templates` | Saved templates |
 | `POST` | `/api/templates` | `{name, prompt, lyrics?, duration?, format?}` — same name overwrites |
 | `DELETE` | `/api/templates/:id` | Remove a template |
-| `GET` | `/api/settings` | Effective inference URL, whether a key is set, and which fields are env-locked (the key itself is never returned) |
-| `PUT` | `/api/settings` | `{musicApi?, apiKey?}` — `apiKey: ""` clears it; env-locked fields are rejected |
+| `GET` | `/api/settings` | Effective inference URL, whether a key is set, `compat` flag, and which fields are env-locked (the key itself is never returned) |
+| `PUT` | `/api/settings` | `{musicApi?, apiKey?, compat?}` — `apiKey: ""` clears it; env-locked fields are rejected; `compat: true` skips `/health` and never streams |
 | `POST` | `/api/settings/test` | Probe a candidate `{musicApi?, apiKey?}` against `/v1/models` without saving |
 
 ## Upstream API

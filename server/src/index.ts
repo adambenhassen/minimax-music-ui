@@ -18,7 +18,7 @@ const settings = new SettingsStore(path.join(config.dataDir, 'settings.json'), {
 await settings.load();
 const effective = settings.effective();
 
-const upstream = new UpstreamClient(effective.musicApi, effective.apiKey);
+const upstream = new UpstreamClient(effective.musicApi, effective.apiKey, effective.compat);
 const queue = new RenderQueue(library, upstream, tracksDir);
 const recovered = await queue.recover();
 

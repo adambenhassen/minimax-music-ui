@@ -141,10 +141,10 @@ export function createApp(deps: AppDeps) {
   app.put('/api/settings', async (req, res, next) => {
     try {
       const b = (req.body ?? {}) as Record<string, unknown>;
-      await settings.update({ musicApi: b.musicApi, apiKey: b.apiKey });
+      await settings.update({ musicApi: b.musicApi, apiKey: b.apiKey, compat: b.compat });
       const e = settings.effective();
-      upstream.configure(e.musicApi, e.apiKey);
-      log(`upstream reconfigured → ${e.musicApi}${e.apiKey ? ' (bearer set)' : ''}`);
+      upstream.configure(e.musicApi, e.apiKey, e.compat);
+      log(`upstream reconfigured → ${e.musicApi}${e.apiKey ? ' (bearer set)' : ''}${e.compat ? ' (compat mode)' : ''}`);
       res.json(settings.publicView());
     } catch (err) {
       next(err);
@@ -164,7 +164,7 @@ export function createApp(deps: AppDeps) {
       return res.status(400).json({ ok: false, error: (err as Error).message });
     }
     try {
-      const h = await new UpstreamClient(url, key).health();
+      const h = await new UpstreamClient(url, key, e.compat).health();
       res.json({ ok: true, musicApi: url, health: { ...h, formats: FORMATS } });
     } catch (err) {
       res.json({ ok: false, musicApi: url, error: (err as Error).message });

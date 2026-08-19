@@ -11,6 +11,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<SettingsTestResult | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [compatMsg, setCompatMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const load = async () => {
     const s = await api.settings();
@@ -54,6 +55,20 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
       onSaved();
     } catch (e) {
       setMsg({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleCompat = async () => {
+    setBusy('save'); setCompatMsg(null);
+    try {
+      const s = await api.saveSettings({ compat: !settings.compat });
+      setSettings(s); setTest(null);
+      setCompatMsg({ kind: 'ok', text: s.compat ? 'Compatibility mode on — the server is treated as stock sgl-omni.' : 'Compatibility mode off — server extras are used again when advertised.' });
+      onSaved();
+    } catch (e) {
+      setCompatMsg({ kind: 'err', text: (e as Error).message });
     } finally {
       setBusy(null);
     }
@@ -132,6 +147,18 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
           </div>
         )}
         {msg && <div className={`text-xs ${msg.kind === 'ok' ? 'text-emerald-300' : 'text-red-400'}`}>{msg.text}</div>}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold">Debugging</h2>
+        <label className="flex items-start gap-3 text-xs text-zinc-400 cursor-pointer">
+          <input type="checkbox" className="mt-0.5 accent-accent" checked={settings.compat} disabled={busy !== null} onChange={() => void toggleCompat()} />
+          <span>
+            <span className="text-zinc-200">Compatibility mode (stock sgl-omni)</span><br />
+            Ignore everything beyond the official <code className="text-zinc-300">POST /v1/audio/speech</code> contract: <code className="text-zinc-300">/health</code> is not probed, so no “Loading model” state, no live progress and no play-while-rendering — even against the bundled inference server. Useful to check that the UI still works with MiniMax's own server.
+          </span>
+        </label>
+        {compatMsg && <div className={`text-xs ${compatMsg.kind === 'ok' ? 'text-emerald-300' : 'text-red-400'}`}>{compatMsg.text}</div>}
       </section>
 
       <section className="space-y-2">
