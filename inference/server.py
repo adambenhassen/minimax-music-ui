@@ -223,6 +223,24 @@ def _worker():
             QUEUE.task_done()
 
 
+app = FastAPI(title="MiniMax Music 3", description="Text-to-music on one GPU, upstream's API.")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.get("/health")
+def health():
+    """503 until the model is on the GPU, so process supervisors can wait it out."""
+    if not STATE["ready"]:
+        raise HTTPException(503, STATE["status"])
+    return {"status": "ready", "model": REPO, "capabilities": CAPABILITIES}
+
+
+@app.get("/v1/models")
+def list_models():
+    return {"object": "list", "data": [{"id": "minimax_ttm", "object": "model", "owned_by": "minimax"}]}
+
+
+@app.post("/v1/audio/speech")
 def speech(req: SpeechRequest, authorization: str = Header(None), x_api_key: str = Header(None)):
     if ARGS.api_key:
         supplied = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
