@@ -82,7 +82,14 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
         <div>
           <h2 className="text-sm font-semibold">Inference server</h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Base URL of your MiniMax-Music3 server — anything that speaks the standard <code className="text-zinc-300">POST /v1/audio/speech</code> route (e.g. <code className="text-zinc-300">sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000</code> → <code className="text-zinc-300">http://host:8000</code>). A path prefix is fine; <code className="text-zinc-300">/v1/models</code> and <code className="text-zinc-300">/v1/audio/speech</code> are appended. Values set via <code className="text-zinc-300">MUSIC_API</code> / <code className="text-zinc-300">MUSIC_API_KEY</code> environment variables always win and are shown locked here.
+            Where your MiniMax-Music3 server listens. Anything that speaks the standard <code className="text-zinc-300">POST /v1/audio/speech</code> route works:
+          </p>
+          <ul className="text-xs text-zinc-500 mt-1.5 space-y-1 list-disc list-outside pl-4">
+            <li>MiniMax's own <code className="text-zinc-300">sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000</code> → <code className="text-zinc-300">http://host:8000</code></li>
+            <li>The bundled single-GPU <code className="text-zinc-300">inference/server.py</code> → <code className="text-zinc-300">http://host:7862</code> (adds live progress and play-while-rendering)</li>
+          </ul>
+          <p className="text-xs text-zinc-500 mt-1.5">
+            A path prefix is fine — <code className="text-zinc-300">/v1/models</code> and <code className="text-zinc-300">/v1/audio/speech</code> are appended. <code className="text-zinc-300">MUSIC_API</code> / <code className="text-zinc-300">MUSIC_API_KEY</code> from the environment override and lock these fields.
           </p>
         </div>
 
