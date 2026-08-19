@@ -11,13 +11,15 @@ interface Props {
   groupSize: number;
   active: boolean;
   playing: boolean;
+  selected: boolean;
+  onSelect: (t: Track) => void;
   onPlay: (t: Track) => void;
   onDelete: (t: Track) => void;
   onReuse: (t: Track) => void;
   onRetry: (t: Track) => void;
 }
 
-export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDelete, onReuse, onRetry }: Props) {
+export function TrackCard({ track: t, groupSize, active, playing, selected, onSelect, onPlay, onDelete, onReuse, onRetry }: Props) {
   const [open, setOpen] = useState(false);
   const inflight = isInflight(t);
   const done = t.status === 'done';
@@ -26,7 +28,10 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
   const err = t.status === 'error';
 
   return (
-    <div className={`group rounded-xl border transition ${active ? 'border-accent/60 bg-ink-800' : 'border-ink-700 bg-ink-900 hover:bg-ink-800'} `}>
+    <div
+      className={`group rounded-xl border transition cursor-pointer ${selected ? 'ring-1 ring-accent/60 ' : ''}${active ? 'border-accent/60 bg-ink-800' : 'border-ink-700 bg-ink-900 hover:bg-ink-800'} `}
+      onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a, pre')) onSelect(t); }}
+    >
       <div className="flex gap-3 p-3">
         <button
           onClick={() => playable && onPlay(t)}
@@ -65,7 +70,7 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
             </div>
           </div>
 
-          <div className="mt-2 flex items-center gap-2 text-[11px] text-zinc-500 tabular-nums">
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500 tabular-nums whitespace-nowrap">
             <span>{fmtTime(t.duration)}</span>
             {t.seed !== null && (<><span>·</span><span className="font-mono">seed {t.seed}</span></>)}
             {done && typeof t.elapsed === 'number' && t.elapsed > 0 && (<><span>·</span><span title="render time">took {fmtTook(t.elapsed)}</span></>)}

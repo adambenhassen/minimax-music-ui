@@ -5,7 +5,9 @@ import { Music } from './Icons';
 interface Props {
   tracks: Track[];
   activeId: string | null;
+  selectedId: string | null;
   playing: boolean;
+  onSelect: (t: Track) => void;
   onPlay: (t: Track) => void;
   onDelete: (t: Track) => void;
   onReuse: (t: Track) => void;
@@ -13,7 +15,7 @@ interface Props {
   emptyHint: string;
 }
 
-export function TrackFeed({ tracks, activeId, playing, emptyHint, ...handlers }: Props) {
+export function TrackFeed({ tracks, activeId, selectedId, playing, emptyHint, ...handlers }: Props) {
   if (tracks.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center text-zinc-500 gap-3">
@@ -27,7 +29,7 @@ export function TrackFeed({ tracks, activeId, playing, emptyHint, ...handlers }:
   return (
     <div className="flex flex-col gap-2">
       {tracks.map((t) => (
-        <TrackCard key={t.id} track={t} groupSize={groupSizes.get(t.groupId) ?? 1} active={t.id === activeId} playing={playing && t.id === activeId} {...handlers} />
+        <TrackCard key={t.id} track={t} groupSize={groupSizes.get(t.groupId) ?? 1} active={t.id === activeId} selected={t.id === selectedId} playing={playing && t.id === activeId} {...handlers} />
       ))}
     </div>
   );

@@ -8,6 +8,7 @@ import { CreatePanel, DEFAULT_FORM, formFromTrack, type FormState } from './comp
 import { TrackFeed } from './components/TrackFeed';
 import { Player } from './components/Player';
 import { SettingsPanel } from './components/SettingsPanel';
+import { TrackDetail } from './components/TrackDetail';
 
 const FORM_KEY = 'minimax-music-ui.form';
 
@@ -25,6 +26,7 @@ export default function App() {
   const [form, setForm] = useState<FormState>(loadForm);
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const health = useHealth();
   const { tracks, error: libError, refresh, setTracks } = useLibrary();
@@ -33,6 +35,8 @@ export default function App() {
 
   const doneTracks = useMemo(() => tracks.filter((t) => t.status === 'done'), [tracks]);
   const active = useMemo(() => tracks.find((t) => t.id === activeId) ?? null, [tracks, activeId]);
+  const selected = useMemo(() => tracks.find((t) => t.id === selectedId) ?? null, [tracks, selectedId]);
+  const closeDetail = useCallback(() => setSelectedId(null), []);
   const inflight = tracks.filter(isInflight).length;
 
   const visible = useMemo(() => {
@@ -65,6 +69,7 @@ export default function App() {
     if (!confirm(`${verb} “${t.title}”?`)) return;
     setTracks((prev) => prev.filter((x) => x.id !== t.id));
     if (t.id === activeId) { setActiveId(null); setPlaying(false); }
+    if (t.id === selectedId) setSelectedId(null);
     try { await api.deleteTrack(t.id); } catch (err) { alert((err as Error).message); }
     void refresh();
   };
@@ -78,7 +83,9 @@ export default function App() {
     <TrackFeed
       tracks={visible}
       activeId={activeId}
+      selectedId={selectedId}
       playing={playing}
+      onSelect={(t) => setSelectedId((cur) => (cur === t.id ? null : t.id))}
       onPlay={play}
       onDelete={remove}
       onReuse={reuse}
@@ -120,6 +127,19 @@ export default function App() {
             </div>
           )}
         </main>
+        {selected && view !== 'settings' && (
+          <TrackDetail
+            track={selected}
+            groupSize={tracks.filter((t) => t.groupId === selected.groupId).length}
+            active={selected.id === activeId}
+            playing={playing && selected.id === activeId}
+            onClose={closeDetail}
+            onPlay={play}
+            onDelete={remove}
+            onReuse={reuse}
+            onRetry={retry}
+          />
+        )}
       </div>
       <Player track={active} playing={playing} onPlayingChange={setPlaying} onPrev={() => step(-1)} onNext={() => step(1)} onEnded={() => step(1)} />
     </div>
