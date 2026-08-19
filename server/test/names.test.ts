@@ -14,4 +14,12 @@ describe('randomTitle', () => {
       expect(new Set(words).size).toBe(words.length);
     }
   });
+  it('never pairs an adjective with the same word as noun ("Static Static")', () => {
+    // ADJECTIVES[31] = 'Static' (31.5/40), NOUNS[20] = 'Static' (20.5/40); pattern 0 = "a n"
+    const seq = [31.5 / 40, 20.5 / 40, 20.5 / 40, 0];
+    let i = 0;
+    const t = randomTitle(() => seq[i++]);
+    expect(t.split(' ')[0]).toBe('Static');
+    expect(t.split(' ')[1]).not.toBe('Static');
+  });
 });

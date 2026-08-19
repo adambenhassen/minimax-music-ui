@@ -38,7 +38,7 @@ export function ProgressDetail({ track: t }: { track: Track }) {
           {!indeterminate && <span className="text-zinc-300">{info.real ? '' : '~'}{pct}%</span>}
           {info.real && (t.renderedSeconds ?? 0) > 0 && <span title="audio rendered so far">{fmtTime(t.renderedSeconds!)} / {fmtTime(t.duration)} rendered</span>}
           {typeof t.elapsed === 'number' && t.elapsed > 0 && <span title="elapsed">{fmtTime(t.elapsed)} elapsed</span>}
-          {t.eta !== null && t.eta > 0 && !indeterminate && <span title="estimated remaining" className="text-zinc-300">≈ {fmtEta(t.eta)}</span>}
+          {t.eta !== null && t.eta > 0 && !indeterminate && <span title="estimated remaining" className="text-zinc-300">{fmtEta(t.eta)}</span>}
         </span>
       </div>
     </div>

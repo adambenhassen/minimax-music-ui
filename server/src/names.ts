@@ -23,9 +23,12 @@ const pick = <T,>(arr: T[], rnd: () => number) => arr[Math.floor(rnd() * arr.len
 
 /** A random two-word song title, e.g. "Velvet Horizon". `rnd` is injectable for tests. */
 export function randomTitle(rnd: () => number = Math.random): string {
+  const next = (w: string) => NOUNS[(NOUNS.indexOf(w) + 1) % NOUNS.length];
   const a = pick(ADJECTIVES, rnd);
-  const n = pick(NOUNS, rnd);
+  let n = pick(NOUNS, rnd);
+  if (n === a) n = next(n); // a few words ("Static", "Sunday") are in both lists
   let n2 = pick(NOUNS, rnd);
-  if (n2 === n) n2 = NOUNS[(NOUNS.indexOf(n) + 1) % NOUNS.length];
+  if (n2 === n || n2 === a) n2 = next(n2 === n ? n : n2);
+  if (n2 === n) n2 = next(n2);
   return pick(PATTERNS, rnd)(a, n, n2);
 }
