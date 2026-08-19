@@ -57,32 +57,43 @@ browser ──/api/*──▶ server/ (Express 5)  ──POST /v1/audio/speech�
 
 ## Requirements
 
-- Node.js 20 or newer
-- A running MiniMax-Music3 server exposing `POST /v1/audio/speech` — either:
-  - MiniMax's own `sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000` (two GPUs), or
-  - the bundled single-GPU server in [`inference/`](inference/) (`python inference/server.py --port 7862`, ~24 GB VRAM) — same API, one card.
-
-  See [Upstream API](#upstream-api).
+- Node.js 20 or newer for the UI.
+- A MiniMax-Music3 inference server exposing `POST /v1/audio/speech` — the bundled single-GPU one below (Python 3.10+, CUDA GPU with ~24 GB VRAM), or MiniMax's own `sgl-omni serve` (two GPUs). See [Upstream API](#upstream-api).
 
 ## Quick start
+
+**1. Start an inference server** (skip if you already have one).
 
 ```bash
 git clone https://github.com/adambenhassen/minimax-music-ui.git
 cd minimax-music-ui
+
+# bundled single-GPU server — same API as sgl-omni, plus live progress
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r inference/requirements.txt
+python inference/server.py --port 7862                  # first start downloads the weights (tens of GB); /health answers 503 until loaded
+```
+
+Or MiniMax's reference server: `sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000` (see the [model card](https://huggingface.co/MiniMaxAI/MiniMax-Music3)). Details and options for the bundled one: [`inference/README.md`](inference/README.md).
+
+**2. Start the UI** (a second terminal).
+
+```bash
 npm install
 npm run build
-MUSIC_API=http://<inference-host>:8000 npm start
+npm start
 # → http://localhost:8787
 ```
 
-Then open **Settings** in the sidebar and enter the inference server URL — or set `MUSIC_API` in the environment (see below).
+The UI talks to `http://127.0.0.1:7862` by default — exactly where the bundled server listens — so it works right away. For any other address open **Settings** in the sidebar and enter the URL (and API key, if the server needs one). Prefer configuring from the environment? `MUSIC_API` / `MUSIC_API_KEY` override Settings and lock the fields — see [Configuration](#configuration).
 
 ### Docker
 
 Prebuilt multi-arch images (amd64 + arm64) are published to GitHub Container Registry on every release:
 
 ```bash
-docker run -d -p 8787:8787 -v "$PWD/data:/data" -e MUSIC_API=http://<inference-host>:8000 ghcr.io/adambenhassen/minimax-music-ui:latest
+docker run -d -p 8787:8787 -v "$PWD/data:/data" ghcr.io/adambenhassen/minimax-music-ui:latest
+# → http://localhost:8787 — then set the inference server URL in Settings
 ```
 
 Or build locally:
@@ -94,7 +105,7 @@ docker build -t minimax-music-ui .
 docker run -d -p 8787:8787 -v "$PWD/data:/data" minimax-music-ui
 ```
 
-Set `MUSIC_API` / `MUSIC_API_KEY` in the environment (or a `.env` next to `docker-compose.yml`) to pin the inference server; leave them unset to configure it from the Settings page. When the inference server runs on the Docker host, use `http://host.docker.internal:<port>/…`.
+Optional: set `MUSIC_API` / `MUSIC_API_KEY` in the environment (`-e MUSIC_API=…`, or a `.env` next to `docker-compose.yml`) to pin the inference server; that locks the fields in Settings. From inside Docker, an inference server on the host is `http://host.docker.internal:7862`.
 
 ### Configuration
 

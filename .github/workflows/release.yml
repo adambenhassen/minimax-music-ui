@@ -54,7 +54,7 @@ jobs:
             echo "## Docker image"
             echo
             echo '```bash'
-            echo "docker run -d -p 8787:8787 -v \$PWD/data:/data -e MUSIC_API=http://<inference-host>:8000 ${IMAGE}:${GITHUB_REF_NAME#v}"
+            echo "docker run -d -p 8787:8787 -v \$PWD/data:/data ${IMAGE}:${GITHUB_REF_NAME#v}   # then set the inference server URL in Settings"
             echo '```'
             echo
             echo "## Changes"
