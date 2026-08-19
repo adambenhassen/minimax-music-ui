@@ -20,7 +20,7 @@ const effective = settings.effective();
 
 const upstream = new UpstreamClient(effective.musicApi, effective.apiKey);
 const queue = new RenderQueue(library, upstream, tracksDir);
-const orphaned = await queue.failOrphans();
+const recovered = await queue.recover();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultStatic = path.resolve(here, '../../web/dist');
@@ -33,7 +33,8 @@ app.listen(config.port, () => {
   console.log(`  upstream: ${effective.musicApi} [${effective.source.musicApi}]${effective.apiKey ? ` (bearer set [${effective.source.apiKey}])` : ''}`);
   console.log(`  data:     ${config.dataDir}`);
   console.log(`  static:   ${staticDir ?? '(none — run web dev server)'}`);
-  if (orphaned) console.log(`  marked ${orphaned} interrupted render(s) as error`);
+  if (recovered.failed) console.log(`  marked ${recovered.failed} interrupted render(s) as error`);
+  if (recovered.resumed) console.log(`  re-queued ${recovered.resumed} pending render(s)`);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

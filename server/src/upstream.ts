@@ -253,13 +253,17 @@ export class RenderQueue {
     return false;
   }
 
-  /** On boot: anything left queued/running by a previous process can't be resumed. */
-  async failOrphans(): Promise<number> {
-    const orphans = this.library.all().filter((t) => t.status === 'queued' || t.status === 'running');
-    for (const t of orphans) {
+  /** On boot: a render that was in flight can't be reattached (the upstream call is gone), so it fails;
+   *  tracks that were still queued are re-enqueued in their original order. */
+  async recover(): Promise<{ failed: number; resumed: number }> {
+    const all = this.library.all();
+    const running = all.filter((t) => t.status === 'running');
+    for (const t of running) {
       await this.library.update(t.id, { status: 'error', stage: 'error', error: 'interrupted by UI server restart', finishedAt: new Date().toISOString() });
     }
-    return orphans.length;
+    const queued = all.filter((t) => t.status === 'queued').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const t of queued) this.enqueue(t.id);
+    return { failed: running.length, resumed: queued.length };
   }
 
   private async pump(): Promise<void> {

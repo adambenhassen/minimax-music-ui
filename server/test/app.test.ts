@@ -154,11 +154,16 @@ describe('app', () => {
     await expect(fs.access(path.join(tracksDir, `${id}.wav`))).rejects.toThrow();
   });
 
-  it('failOrphans marks leftover renders after a restart', async () => {
+  it('recover fails a running render after a restart and re-enqueues queued ones in order', async () => {
     const { lib, queue } = await setup();
-    await lib.add({ id: 'o1', groupId: 'g', takeIndex: 0, title: 'T', prompt: 'p', lyrics: '[Instrumental]', duration: 10, seed: null, format: 'wav', status: 'running', progress: 0.3, stage: 'rendering', eta: null, error: null, file: null, createdAt: new Date().toISOString(), finishedAt: null });
-    expect(await queue.failOrphans()).toBe(1);
+    const base = { groupId: 'g', takeIndex: 0, title: 'T', prompt: 'p', lyrics: '[Instrumental]', duration: 10, seed: null, format: 'wav', progress: 0, eta: null, error: null, file: null, finishedAt: null };
+    await lib.add({ ...base, id: 'o1', status: 'running', progress: 0.3, stage: 'rendering', createdAt: '2026-01-01T00:00:00.000Z' });
+    await lib.add({ ...base, id: 'q2', status: 'queued', stage: 'queued', createdAt: '2026-01-01T00:00:02.000Z' });
+    await lib.add({ ...base, id: 'q1', status: 'queued', stage: 'queued', createdAt: '2026-01-01T00:00:01.000Z' });
+    expect(await queue.recover()).toEqual({ failed: 1, resumed: 2 });
     expect(lib.get('o1')).toMatchObject({ status: 'error', error: /restart/ });
+    await until(() => lib.get('q1')?.status === 'done' && lib.get('q2')?.status === 'done');
+    expect(Date.parse(lib.get('q1')!.finishedAt!)).toBeLessThanOrEqual(Date.parse(lib.get('q2')!.finishedAt!));
   });
 
   it('uses the given title when present, random otherwise', async () => {
