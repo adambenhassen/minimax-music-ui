@@ -227,7 +227,7 @@ describe('app', () => {
     const { app, lib, tracksDir } = await setup({ stream: { windows: 4, secondsPerWindow: 0.1, windowMs: 40 } });
     const h = await request(app).get('/api/health');
     expect(h.body.capabilities).toEqual(['stream']);
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', duration: 10 });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', duration: 10, stream: true });
     const id = res.body[0].id as string;
     await until(() => lib.get(id)?.stage === 'semantic');
     await until(() => (lib.get(id)?.renderedSeconds ?? 0) > 0);
@@ -245,9 +245,17 @@ describe('app', () => {
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: true });
   });
 
+  it('streaming is opt-in: without stream:true the blocking path is used even when advertised', async () => {
+    const { app, lib } = await setup({ stream: { windows: 2 } });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    await until(() => lib.get(res.body[0].id)?.status === 'done');
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
+    expect(lib.get(res.body[0].id)?.renderedSeconds).toBeNull();
+  });
+
   it('never sends stream:true to servers that do not advertise it', async () => {
     const { app, lib } = await setup({ loading: false });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
     expect(lib.get(res.body[0].id)?.renderedSeconds).toBeNull();
@@ -255,7 +263,7 @@ describe('app', () => {
 
   it('cancel mid-stream aborts upstream and marks cancelled', async () => {
     const { app, lib } = await setup({ stream: { windows: 50, windowMs: 40 } });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
     const id = res.body[0].id as string;
     await until(() => (lib.get(id)?.renderedSeconds ?? 0) > 0);
     await request(app).delete(`/api/tracks/${id}`);
@@ -265,7 +273,7 @@ describe('app', () => {
 
   it('audio route serves the partial WAV of a running track with a patched header and honours Range', async () => {
     const { app, lib } = await setup({ stream: { windows: 40, secondsPerWindow: 0.1, windowMs: 40 } });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
     const id = res.body[0].id as string;
     await until(() => (lib.get(id)?.renderedSeconds ?? 0) >= 0.2);
     const bin = (r: request.Response, cb: (err: Error | null, body: Buffer) => void) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); };

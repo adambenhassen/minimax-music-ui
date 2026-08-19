@@ -19,6 +19,8 @@ export interface Track {
   eta: number | null;
   /** seconds since the render started */
   elapsed?: number | null;
+  /** opt-in: use the upstream's optional streaming extension when it advertises one */
+  stream: boolean;
   /** seconds of audio already on disk while streaming; null when the server can't stream */
   renderedSeconds: number | null;
   error: string | null;
@@ -35,6 +37,7 @@ export interface GenerateRequest {
   seed: number | null;
   format: string;
   takes: number;
+  stream: boolean;
 }
 
 export interface Template {

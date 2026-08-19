@@ -16,6 +16,9 @@ describe('normalizeGenerate', () => {
     expect(normalizeGenerate({ prompt: 'x' }).duration).toBe(60);
     expect(normalizeGenerate({ prompt: 'x', takes: 0 }).takes).toBe(1);
     expect(normalizeGenerate({ prompt: 'x', takes: 9 }).takes).toBe(4);
+    expect(normalizeGenerate({ prompt: 'x' }).stream).toBe(false);
+    expect(normalizeGenerate({ prompt: 'x', stream: 'yes' }).stream).toBe(false);
+    expect(normalizeGenerate({ prompt: 'x', stream: true }).stream).toBe(true);
   });
   it('validates seed', () => {
     expect(() => normalizeGenerate({ prompt: 'x', seed: 1.5 })).toThrow(/seed/);

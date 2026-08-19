@@ -38,5 +38,7 @@ export function normalizeGenerate(body: unknown): GenerateRequest {
 
   const title = typeof b.title === 'string' ? b.title.trim().slice(0, 120) : '';
 
-  return { title, prompt, lyrics, duration, seed, format, takes };
+  const stream = b.stream === true;
+
+  return { title, prompt, lyrics, duration, seed, format, takes, stream };
 }

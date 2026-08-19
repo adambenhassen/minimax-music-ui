@@ -25,6 +25,9 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
   const loadedSrc = useRef('');
   const pendingSeek = useRef<number | null>(null);
 
+  // a play() cut short by our own src swap rejects with AbortError — expected, not a playback problem
+  const reportPlayError = (e: Error) => { if (e.name !== 'AbortError') setErr(e.message); };
+
   const live = track?.status === 'running';
   const rendered = track?.renderedSeconds ?? 0;
   const total = track ? (live ? track.duration : dur || track.duration) : 0;
@@ -46,6 +49,13 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
       return;
     }
     if (loadedSrc.current === src) return;
+    // Render finished while we were starved at the end of the data: the whole track has been heard.
+    if (sameTrack && !live && starvedRef.current && el.ended) {
+      loadedSrc.current = src;
+      starvedRef.current = false; setStarved(false);
+      onEnded();
+      return;
+    }
     const nearEnd = el.duration > 0 && el.duration - el.currentTime < 2;
     // Keep playing what we have unless we're about to run dry; a reload costs a small gap.
     if (sameTrack && live && playing && !starved && !nearEnd) return;
@@ -58,14 +68,14 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
     starvedRef.current = false; setStarved(false);
     el.src = src;
     el.load();
-    if (resume) el.play().catch((e) => setErr(e.message));
+    if (resume) el.play().catch(reportPlayError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, live, playing, starved]);
 
   useEffect(() => {
     const el = audio.current;
     if (!el || !track) return;
-    if (playing) { if (!starvedRef.current) el.play().catch((e) => setErr(e.message)); }
+    if (playing) { if (!starvedRef.current) el.play().catch(reportPlayError); }
     else { el.pause(); starvedRef.current = false; setStarved(false); } // a manual pause also disarms auto-resume
   }, [playing, track]);
 
@@ -105,7 +115,12 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
         onLoadedMetadata={(e) => { if (pendingSeek.current !== null) { e.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null; } }}
         onEnded={handleEnded}
         onPlay={() => onPlayingChange(true)}
-        onPause={() => { if (!starvedRef.current) onPlayingChange(false); }}
+        onPause={(e) => {
+          // browsers fire `pause` before `ended`; treat running out of live data as starvation, not a user pause
+          const el = e.currentTarget;
+          if (live && (el.ended || (el.duration > 0 && el.duration - el.currentTime < 0.05))) { starvedRef.current = true; setStarved(true); return; }
+          if (!starvedRef.current) onPlayingChange(false);
+        }}
         onError={() => setErr('playback error')}
       />
       <div className="flex items-center gap-3 w-36 md:w-64 min-w-0">

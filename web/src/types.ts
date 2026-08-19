@@ -16,6 +16,8 @@ export interface Track {
   stage: string;
   eta: number | null;
   elapsed?: number | null;
+  /** opt-in per track: stream live progress + audio when the server supports it */
+  stream: boolean;
   /** seconds of audio on disk while a streamed render is running; null when the server can't stream */
   renderedSeconds: number | null;
   error: string | null;
@@ -44,6 +46,7 @@ export interface GenerateInput {
   seed: number | null;
   format: string;
   takes: number;
+  stream: boolean;
 }
 
 export interface Template {

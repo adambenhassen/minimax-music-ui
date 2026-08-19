@@ -29,10 +29,12 @@ export interface FormState {
   takes: number;
   seed: string;
   format: string;
+  /** stream live progress + audio while rendering (needs a server that advertises it) */
+  stream: boolean;
 }
 
 export const DEFAULT_FORM: FormState = {
-  mode: 'simple', title: '', prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, instrumental: false, duration: 60, takes: 1, seed: '', format: 'wav',
+  mode: 'simple', title: '', prompt: TEMPLATE_PROMPT, lyrics: TEMPLATE_LYRICS, instrumental: false, duration: 60, takes: 1, seed: '', format: 'wav', stream: false,
 };
 
 export function formFromTrack(t: Track): FormState {
@@ -46,6 +48,7 @@ export function formFromTrack(t: Track): FormState {
     takes: 1,
     seed: t.seed === null ? '' : String(t.seed),
     format: t.format,
+    stream: t.stream,
   };
 }
 
@@ -66,6 +69,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const online = !!health?.upstreamReachable;
   const loading = online && !health!.ready;
   const canSubmit = online && !loading && form.prompt.trim().length > 0 && !submitting;
+  const canStream = !!health?.capabilities?.includes('stream');
   const estMin = useMemo(() => Math.round((form.duration * 3 * form.takes) / 60 * 10) / 10, [form.duration, form.takes]);
 
   const submit = async () => {
@@ -82,6 +86,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
         seed,
         format: form.format,
         takes: form.takes,
+        stream: form.stream && canStream,
       });
     } catch (err) {
       setError((err as Error).message);
@@ -202,6 +207,13 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
                 {FORMAT_OPTIONS.map((f) => <option key={f.value} value={f.value} disabled={f.disabled}>{f.label}</option>)}
               </select>
             </div>
+            <label className={`col-span-2 flex items-start gap-2 text-xs ${canStream ? 'text-zinc-300 cursor-pointer' : 'text-zinc-500'}`} title={canStream ? undefined : 'This server does not advertise streaming (stock sgl-omni); progress will be estimated'}>
+              <input type="checkbox" className="mt-0.5 accent-accent" checked={form.stream && canStream} disabled={!canStream} onChange={(e) => set('stream', e.target.checked)} />
+              <span>
+                Stream while rendering
+                <span className="block text-[10px] text-zinc-500">Live progress and play-before-finished{canStream ? '' : ' — not offered by this server'}</span>
+              </span>
+            </label>
           </div>
         )}
       </div>

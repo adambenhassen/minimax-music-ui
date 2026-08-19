@@ -270,7 +270,7 @@ export class RenderQueue {
     const startedAt = Date.now();
     const est = Math.max(5, track.duration * REALTIME_FACTOR);
     await this.client.ensureProbed();
-    const streaming = this.client.canStream;
+    const streaming = track.stream && this.client.canStream;
     await this.library.update(id, { status: 'running', stage: streaming ? 'semantic' : 'rendering', progress: 0, eta: est, elapsed: 0, renderedSeconds: streaming ? 0 : null });
 
     const rel = `${id}.${extFor(track.format)}`;

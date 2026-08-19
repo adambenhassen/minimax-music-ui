@@ -68,6 +68,7 @@ export function TrackCard({ track: t, groupSize, active, playing, onPlay, onDele
           <div className="mt-2 flex items-center gap-2 text-[11px] text-zinc-500 tabular-nums">
             <span>{fmtTime(t.duration)}</span>
             {t.seed !== null && (<><span>·</span><span className="font-mono">seed {t.seed}</span></>)}
+            {done && typeof t.elapsed === 'number' && t.elapsed > 0 && (<><span>·</span><span title="render time">rendered in {fmtTime(t.elapsed)}</span></>)}
             <span>·</span>
             <span>{fmtAgo(t.createdAt)}</span>
             {t.lyrics !== '[Instrumental]' && (

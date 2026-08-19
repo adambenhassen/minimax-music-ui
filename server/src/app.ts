@@ -91,6 +91,7 @@ export function createApp(deps: AppDeps) {
           progress: 0,
           stage: 'queued',
           eta: null,
+          stream: g.stream,
           renderedSeconds: null,
           error: null,
           file: null,
