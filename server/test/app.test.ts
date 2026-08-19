@@ -262,4 +262,25 @@ describe('app', () => {
     await until(() => fake!.requests.find((r) => r.path === '/v1/audio/speech')?.aborted === true);
     expect(lib.get(id)).toBeUndefined();
   });
+
+  it('audio route serves the partial WAV of a running track with a patched header and honours Range', async () => {
+    const { app, lib } = await setup({ stream: { windows: 40, secondsPerWindow: 0.1, windowMs: 40 } });
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const id = res.body[0].id as string;
+    await until(() => (lib.get(id)?.renderedSeconds ?? 0) >= 0.2);
+    const bin = (r: request.Response, cb: (err: Error | null, body: Buffer) => void) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); };
+    const full = await request(app).get(`/api/tracks/${id}/audio`).buffer(true).parse(bin);
+    expect(full.status).toBe(200);
+    expect(full.headers['accept-ranges']).toBe('bytes');
+    const buf = full.body as Buffer;
+    expect(buf.toString('ascii', 0, 4)).toBe('RIFF');
+    expect(buf.readUInt32LE(40)).toBe(buf.length - 44);
+    expect(buf.readUInt32LE(4)).toBe(buf.length - 8);
+    expect(buf.length).toBeGreaterThanOrEqual(44 + Math.round(0.2 * 44100) * 4);
+    const part = await request(app).get(`/api/tracks/${id}/audio`).set('Range', 'bytes=40-51').buffer(true).parse(bin);
+    expect(part.status).toBe(206);
+    expect((part.body as Buffer).length).toBe(12);
+    expect(part.headers['content-range']).toMatch(/^bytes 40-51\/\d+$/);
+    await request(app).delete(`/api/tracks/${id}`);
+  });
 });

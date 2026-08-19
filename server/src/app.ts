@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { JsonStore, Library } from './library.js';
@@ -8,6 +9,7 @@ import { normalizeGenerate, ValidationError } from './validate.js';
 import { normalizeMusicApi, SettingsStore } from './settings.js';
 import { randomTitle } from './names.js';
 import { FORMATS, type Template, type Track } from './types.js';
+import { patchWavSizes, WAV_HEADER_BYTES } from './wav.js';
 
 export interface AppDeps {
   library: Library;
@@ -21,6 +23,33 @@ export interface AppDeps {
 }
 
 const MIME: Record<string, string> = { wav: 'audio/wav' };
+
+/** A WAV still being written: sizes in its header are 0 until done, so patch them to the current length on the way out. */
+async function servePartialWav(req: Request, res: Response, abs: string, type: string): Promise<void> {
+  let size: number;
+  try { size = (await fs.stat(abs)).size; } catch { res.status(404).json({ error: 'no audio yet' }); return; }
+  if (size < WAV_HEADER_BYTES) { res.status(404).json({ error: 'no audio yet' }); return; }
+  const raw = Buffer.alloc(WAV_HEADER_BYTES);
+  const fh = await fs.open(abs, 'r');
+  try { await fh.read(raw, 0, WAV_HEADER_BYTES, 0); } finally { await fh.close(); }
+  const header = patchWavSizes(raw, size);
+  let start = 0, end = size - 1;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  if (m) {
+    if (m[1]) start = Number(m[1]);
+    if (m[2]) end = m[1] ? Math.min(size - 1, Number(m[2])) : size - 1;
+    if (!m[1] && m[2]) start = Math.max(0, size - Number(m[2]));
+    if (start > end || start >= size) { res.status(416).set('Content-Range', `bytes */${size}`).end(); return; }
+  }
+  res.status(m ? 206 : 200).set({
+    'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store',
+    'Content-Length': String(end - start + 1),
+    ...(m ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}),
+  });
+  if (start < WAV_HEADER_BYTES) res.write(header.subarray(start, Math.min(WAV_HEADER_BYTES, end + 1)));
+  if (end >= WAV_HEADER_BYTES) fsSync.createReadStream(abs, { start: Math.max(WAV_HEADER_BYTES, start), end }).pipe(res);
+  else res.end();
+}
 
 export function createApp(deps: AppDeps) {
   const { library, templates, settings, upstream, queue, tracksDir } = deps;
@@ -92,6 +121,7 @@ export function createApp(deps: AppDeps) {
     if (!track || !track.file) return res.status(404).json({ error: 'no audio' });
     const abs = path.join(tracksDir, track.file);
     const type = MIME[extFor(track.format)] ?? 'application/octet-stream';
+    if (track.status === 'running') return void servePartialWav(req, res, abs, type);
     const download = req.query.download !== undefined;
     res.sendFile(abs, {
       headers: {
