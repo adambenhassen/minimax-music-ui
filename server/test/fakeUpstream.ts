@@ -69,6 +69,7 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
     res.flushHeaders();
     entry.stream = true;
     const frames = Number(b.max_new_tokens ?? 1500);
+    const audioWindows = b.stream_audio !== false;
     let step = 0; let seconds = 0;
     const timer = setInterval(() => {
       if (res.destroyed) return clearInterval(timer);
@@ -76,10 +77,16 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
       else if (step - 2 < s.windows) {
         const k = step - 2;
         send('progress', { stage: 'denoise', done: k * 30 + 30, total: s.windows * 30, secondsRendered: seconds });
-        const pcm = sinePcm(per, sr, 220 * (k + 1));
         seconds += per;
-        send('audio', { pcm: pcm.toString('base64'), samples: pcm.length / 4, sampleRate: sr, channels: 2 });
+        if (audioWindows) {
+          const pcm = sinePcm(per, sr, 220 * (k + 1));
+          send('audio', { pcm: pcm.toString('base64'), samples: pcm.length / 4, sampleRate: sr, channels: 2 });
+        }
       } else {
+        if (!audioWindows) {
+          const pcm = Buffer.concat(Array.from({ length: s.windows }, (_, k) => sinePcm(per, sr, 220 * (k + 1))));
+          send('audio', { pcm: pcm.toString('base64'), samples: pcm.length / 4, sampleRate: sr, channels: 2 });
+        }
         send('done', { seed: Number(b.seed ?? 4242), sampleRate: sr, channels: 2 });
         clearInterval(timer);
         res.end();

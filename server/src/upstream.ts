@@ -129,7 +129,7 @@ export class UpstreamClient {
     }
   }
 
-  private async post(body: SpeechBody, stream: boolean, signal?: AbortSignal): Promise<Response> {
+  private async post(body: SpeechBody, stream: boolean, signal?: AbortSignal, extra: Record<string, unknown> = {}): Promise<Response> {
     await this.ensureProbed();
     const payload = {
       model: this.model,
@@ -139,6 +139,7 @@ export class UpstreamClient {
       max_new_tokens: Math.min(MAX_FRAMES, Math.max(1, Math.round(body.duration * FRAMES_PER_SECOND))),
       stream,
       ...(body.seed !== null ? { seed: body.seed } : {}),
+      ...extra,
     };
     let res: Response;
     try {
@@ -173,9 +174,12 @@ export class UpstreamClient {
     return { seed: UpstreamClient.seedOf(res) };
   }
 
-  /** stream:true variant (only when `canStream`): SSE with progress + PCM windows, assembled into a WAV at `dest`. */
-  async speechStream(body: SpeechBody, dest: string, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<{ seed: number | null }> {
-    const res = await this.post(body, true, signal);
+  /**
+   * stream:true variant (only when `canStream`): SSE with progress + PCM windows, assembled into a WAV at `dest`.
+   * `audio: false` asks for progress only (`stream_audio: false`); the clip then arrives in one event at the end.
+   */
+  async speechStream(body: SpeechBody, dest: string, onEvent: (e: StreamEvent) => void, signal?: AbortSignal, opts: { audio?: boolean } = {}): Promise<{ seed: number | null }> {
+    const res = await this.post(body, true, signal, opts.audio === false ? { stream_audio: false } : {});
     if (!(res.headers.get('content-type') ?? '').includes('text/event-stream') || !res.body) {
       throw new UpstreamError(`upstream did not stream (content-type ${res.headers.get('content-type') ?? 'none'})`, res.status);
     }
@@ -270,8 +274,9 @@ export class RenderQueue {
     const startedAt = Date.now();
     const est = Math.max(5, track.duration * REALTIME_FACTOR);
     await this.client.ensureProbed();
-    const streaming = track.stream && this.client.canStream;
-    await this.library.update(id, { status: 'running', stage: streaming ? 'semantic' : 'rendering', progress: 0, eta: est, elapsed: 0, renderedSeconds: streaming ? 0 : null });
+    const streaming = this.client.canStream;           // real progress whenever the upstream offers it
+    const audioWindows = streaming && track.stream;     // early playback is opt-in per track
+    await this.library.update(id, { status: 'running', stage: streaming ? 'semantic' : 'rendering', progress: 0, eta: est, elapsed: 0, renderedSeconds: audioWindows ? 0 : null });
 
     const rel = `${id}.${extFor(track.format)}`;
     const dest = path.join(this.tracksDir, rel);
@@ -282,9 +287,10 @@ export class RenderQueue {
     const onEvent = (e: StreamEvent) => {
       if (e.type === 'progress') {
         const part = e.total > 0 ? Math.min(1, e.done / e.total) : 0;
+        const stageChanged = e.stage !== stage;
         stage = e.stage;
         frac = stage === 'semantic' ? 0.35 * part : 0.35 + 0.65 * part;
-        if (Date.now() - lastWrite < 250) return; // throttle store writes; audio events always write
+        if (!stageChanged && Date.now() - lastWrite < 250) return; // throttle store writes; stage changes and audio always write
       } else {
         rendered = e.secondsRendered;
       }
@@ -292,7 +298,8 @@ export class RenderQueue {
       const elapsed = elapsedS();
       const eta = frac > 0.02 ? Math.max(0, elapsed / frac - elapsed) : Math.max(0, est - elapsed);
       const patch: Partial<Track> = { stage, progress: Math.min(0.99, frac), eta, elapsed, renderedSeconds: rendered };
-      if (rendered > 0 && !fileKnown) { fileKnown = true; patch.file = rel; }
+      if (!audioWindows) patch.renderedSeconds = null; // whole clip arrives at the end; nothing to play early
+      else if (rendered > 0 && !fileKnown) { fileKnown = true; patch.file = rel; }
       void this.library.update(id, patch);
     };
 
@@ -305,7 +312,7 @@ export class RenderQueue {
     try {
       const body = { prompt: track.prompt, lyrics: track.lyrics, duration: track.duration, seed: track.seed, format: track.format };
       const { seed } = streaming
-        ? await this.client.speechStream(body, dest, onEvent, ac.signal)
+        ? await this.client.speechStream(body, dest, onEvent, ac.signal, { audio: audioWindows })
         : await this.client.speechToFile(body, dest, ac.signal);
       clearInterval(timer);
       await this.library.update(id, {
@@ -313,7 +320,7 @@ export class RenderQueue {
         elapsed: elapsedS(),
         seed: seed ?? track.seed,
         file: rel,
-        renderedSeconds: streaming ? rendered : null,
+        renderedSeconds: audioWindows ? rendered : null,
         finishedAt: new Date().toISOString(),
       });
     } catch (err) {

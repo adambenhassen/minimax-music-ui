@@ -16,8 +16,9 @@ which fits on one card (~24 GB), so a client written against either works agains
 
     POST /v1/audio/speech with "stream": true   (this server only; upstream rejects it)
     -> text/event-stream: `progress` {stage: semantic|denoise, done, total, secondsRendered},
-       `audio` {pcm: base64 int16 stereo, samples, sampleRate, channels} per denoised window,
-       then `done` {seed, sampleRate, channels} or `error` {message}. Disconnecting cancels the job.
+       `audio` {pcm: base64 int16 stereo, samples, sampleRate, channels} per denoised window
+       (or once at the end when "stream_audio": false), then `done` {seed, sampleRate, channels}
+       or `error` {message}. Disconnecting cancels the job.
 
     GET /v1/models   -> the one model
     GET /health      -> 200 {"status":"ready","capabilities":["stream"]} once loaded, 503 while loading
@@ -120,7 +121,7 @@ def _install_progress_hooks(pipe):
         job = CURRENT["job"]
         _check_cancel(job)
         components, block_state = orig_loop_step(self, components, block_state, k=k)
-        if job is not None and job["events"] is not None:
+        if job is not None and job["events"] is not None and job["stream_audio"]:
             latents = block_state.latent_chunks[-1]
             last = k == len(block_state.chunk_starts) - 1
             hop = components.latent_hop_length
@@ -152,6 +153,7 @@ class SpeechRequest(BaseModel):
         None, description="Length in 25 fps frames: 750 = 30 s, cap 9000 = 360 s. Default 1500 = 60 s."
     )
     stream: bool = Field(False, description="true (this server only) streams SSE progress + PCM windows; upstream accepts only false.")
+    stream_audio: bool = Field(True, description="With stream=true: false skips per-window audio events (progress only; the clip arrives in one `audio` event at the end).")
 
 
 def _worker():
@@ -199,7 +201,7 @@ def _worker():
             )[0]
             if hasattr(audio, "cpu"):  # some builds return a tensor, others a numpy array
                 audio = audio.float().cpu().numpy()
-            if job["events"] is not None and not job["pcm"]:  # hooks missing: ship the whole clip in one event
+            if job["events"] is not None and not job["pcm"]:  # progress-only stream, or hooks missing: whole clip in one event
                 pcm = (audio.T * 32767.0).astype("<i2").tobytes()
                 _emit(job, "audio", {"pcm": base64.b64encode(pcm).decode("ascii"), "samples": int(audio.shape[-1]),
                                      "sampleRate": int(PIPE.sampling_rate), "channels": int(audio.shape[0])})
@@ -267,6 +269,7 @@ def speech(req: SpeechRequest, authorization: str = Header(None), x_api_key: str
         "error": None,
         "event": threading.Event(),
         "events": queue.Queue() if req.stream else None,
+        "stream_audio": bool(req.stream_audio),
         "cancelled": False,
         "frames": 0,
         "max_frames": frames,

@@ -29,7 +29,7 @@ export interface FormState {
   takes: number;
   seed: string;
   format: string;
-  /** stream live progress + audio while rendering (needs a server that advertises it) */
+  /** stream audio while rendering so the track can be played before it finishes (needs a server that advertises it) */
   stream: boolean;
 }
 
@@ -207,11 +207,11 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
                 {FORMAT_OPTIONS.map((f) => <option key={f.value} value={f.value} disabled={f.disabled}>{f.label}</option>)}
               </select>
             </div>
-            <label className={`col-span-2 flex items-start gap-2 text-xs ${canStream ? 'text-zinc-300 cursor-pointer' : 'text-zinc-500'}`} title={canStream ? undefined : 'This server does not advertise streaming (stock sgl-omni); progress will be estimated'}>
+            <label className={`col-span-2 flex items-start gap-2 text-xs ${canStream ? 'text-zinc-300 cursor-pointer' : 'text-zinc-500'}`} title={canStream ? undefined : 'This server does not advertise streaming (stock sgl-omni)'}>
               <input type="checkbox" className="mt-0.5 accent-accent" checked={form.stream && canStream} disabled={!canStream} onChange={(e) => set('stream', e.target.checked)} />
               <span>
-                Stream while rendering
-                <span className="block text-[10px] text-zinc-500">Live progress and play-before-finished{canStream ? '' : ' — not offered by this server'}</span>
+                Play while rendering
+                <span className="block text-[10px] text-zinc-500">Streams audio as it's rendered so you can listen early; costs a little extra GPU time{canStream ? '' : ' — not offered by this server'}</span>
               </span>
             </label>
           </div>

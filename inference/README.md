@@ -24,7 +24,7 @@ If the Hub asks you to accept the model's terms, do that on the model page and l
 | Route | |
 |---|---|
 | `POST /v1/audio/speech` | `{model, input (lyrics), instructions (style), response_format: "wav", seed?, max_new_tokens (25 fps frames, ≤ 9000), stream: false}` → 44.1 kHz stereo 16-bit WAV, seed used in `X-Seed` |
-| `POST /v1/audio/speech` + `stream: true` | *this server only* — `text/event-stream`: `progress {stage: semantic\|denoise, done, total, secondsRendered}`, `audio {pcm (base64 int16 stereo), samples, sampleRate, channels}` per denoised ~8 s window, then `done {seed}` or `error {message}`; disconnecting cancels the render |
+| `POST /v1/audio/speech` + `stream: true` | *this server only* — `text/event-stream`: `progress {stage: semantic\|denoise, done, total, secondsRendered}`, `audio {pcm (base64 int16 stereo), samples, sampleRate, channels}` per denoised ~8 s window (add `stream_audio: false` for progress only — the clip then arrives in one `audio` event at the end), then `done {seed}` or `error {message}`; disconnecting cancels the render |
 | `GET /v1/models` | the one model (`minimax_ttm`) |
 | `GET /health` | `200 {"status":"ready","capabilities":["stream"]}` once loaded, 503 while loading |
 

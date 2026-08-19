@@ -245,12 +245,21 @@ describe('app', () => {
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: true });
   });
 
-  it('streaming is opt-in: without stream:true the blocking path is used even when advertised', async () => {
-    const { app, lib } = await setup({ stream: { windows: 2 } });
+  it('without the per-track stream flag: progress is still real over SSE (stream_audio:false), no early audio, valid WAV', async () => {
+    const { app, lib, tracksDir } = await setup({ stream: { windows: 3, secondsPerWindow: 0.1, windowMs: 40 } });
     const res = await request(app).post('/api/generate').send({ prompt: 'x' });
-    await until(() => lib.get(res.body[0].id)?.status === 'done');
-    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
-    expect(lib.get(res.body[0].id)?.renderedSeconds).toBeNull();
+    const id = res.body[0].id as string;
+    await until(() => lib.get(id)?.stage === 'denoise');
+    expect(lib.get(id)?.renderedSeconds).toBeNull();
+    expect(lib.get(id)?.file).toBeNull();
+    await until(() => lib.get(id)?.status === 'done');
+    const t = lib.get(id)!;
+    expect(t.renderedSeconds).toBeNull();
+    expect(t.progress).toBe(1);
+    const wav = await fs.readFile(path.join(tracksDir, t.file!));
+    expect(wav.length).toBe(44 + Math.round(0.1 * 44100) * 4 * 3);
+    expect(wav.readUInt32LE(40)).toBe(wav.length - 44);
+    expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: true, stream_audio: false });
   });
 
   it('never sends stream:true to servers that do not advertise it', async () => {

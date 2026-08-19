@@ -16,7 +16,7 @@ export interface Track {
   stage: string;
   eta: number | null;
   elapsed?: number | null;
-  /** opt-in per track: stream live progress + audio when the server supports it */
+  /** opt-in per track: stream audio windows for play-while-rendering (progress is live regardless when the server supports it) */
   stream: boolean;
   /** seconds of audio on disk while a streamed render is running; null when the server can't stream */
   renderedSeconds: number | null;
@@ -74,5 +74,5 @@ export interface SettingsTestResult {
 }
 
 export const isInflight = (t: Track) => t.status === 'queued' || t.status === 'running';
-/** done, or rendering — pressing play on a rendering track arms it and playback starts when audio arrives */
-export const isPlayable = (t: Track) => t.status === 'done' || t.status === 'running';
+/** done, or rendering with early audio enabled — play arms it and playback starts when audio arrives */
+export const isPlayable = (t: Track) => t.status === 'done' || (t.status === 'running' && t.stream);
