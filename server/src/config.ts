@@ -8,6 +8,8 @@ export interface Config {
   port: number;
   dataDir: string;
   staticDir: string | null;
+  /** DEMO=1: read-only public demo (see demo.ts) */
+  demo: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -19,5 +21,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     dataDir: path.resolve(env.DATA_DIR ?? './data'),
     staticDir: env.STATIC_DIR ? path.resolve(env.STATIC_DIR) : null,
+    demo: env.DEMO === '1' || env.DEMO === 'true',
   };
 }

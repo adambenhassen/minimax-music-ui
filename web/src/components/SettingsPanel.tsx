@@ -3,7 +3,7 @@ import { api } from '../api';
 import type { Settings, SettingsTestResult } from '../types';
 import { Lock } from './Icons';
 
-export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
+export function SettingsPanel({ onSaved, demo = false }: { onSaved: () => void; demo?: boolean }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [musicApi, setMusicApi] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -78,6 +78,7 @@ export function SettingsPanel({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="p-6 max-w-2xl space-y-8">
+      {demo && <div className="text-xs rounded-lg px-3 py-2 border text-sky-200 bg-sky-500/10 border-sky-500/30">Read-only demo — settings can be viewed but not changed.</div>}
       <section className="space-y-4">
         <div>
           <h2 className="text-sm font-semibold">Inference server</h2>

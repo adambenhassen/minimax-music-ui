@@ -10,6 +10,7 @@ import { normalizeMusicApi, SettingsStore } from './settings.js';
 import { randomTitle } from './names.js';
 import { FORMATS, type Template, type Track } from './types.js';
 import { patchWavSizes, WAV_HEADER_BYTES } from './wav.js';
+import { demoRouter, type DemoOptions } from './demo.js';
 
 export interface AppDeps {
   library: Library;
@@ -20,6 +21,8 @@ export interface AppDeps {
   tracksDir: string;
   staticDir?: string | null;
   log?: (msg: string) => void;
+  /** read-only public demo: showcase library, simulated per-visitor renders, no upstream, no writes */
+  demo?: DemoOptions | null;
 }
 
 const MIME: Record<string, string> = { wav: 'audio/wav' };
@@ -56,6 +59,7 @@ export function createApp(deps: AppDeps) {
   const log = deps.log ?? ((m: string) => console.log(`[app] ${m}`));
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+  if (deps.demo) app.use(demoRouter(library, tracksDir, deps.demo));
 
   app.get('/api/health', async (_req, res) => {
     try {

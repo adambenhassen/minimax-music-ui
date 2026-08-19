@@ -27,6 +27,8 @@ export interface Track {
 }
 
 export interface Health {
+  /** public read-only demo: showcase library, simulated renders */
+  demo?: boolean;
   upstreamReachable: boolean;
   ready: boolean;
   busy: boolean;

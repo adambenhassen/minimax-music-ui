@@ -115,11 +115,22 @@ FAKE_STREAM=1 npm run fake -w server    # advertises streaming; SSE progress + 4
 FAKE_PORT=7998 npm run fake -w server   # listen elsewhere (default 7999)
 ```
 
+## Public demo image (read-only)
+
+`Dockerfile.demo` bakes a showcase library into the normal image and sets `DEMO=1`: the library is read-only, Settings/Templates can't be changed, and **Create simulates a render** (progress bar, then one of the showcase songs is handed out) — per visitor, in memory, no GPU involved. A banner and the health pill say so.
+
+```bash
+demo/prepare.sh server/data                # copy finished WAV tracks + trimmed library.json → demo/data
+docker build -t minimax-music-ui .
+docker build -f Dockerfile.demo -t minimax-music-ui-demo .
+docker run --read-only -p 8787:8787 minimax-music-ui-demo
+```
+
 ## UI server API
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), `capabilities` from that `/health`, queue state |
+| `GET` | `/api/health` | `demo` (read-only demo, see above), `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), `capabilities` from that `/health`, queue state |
 | `GET` | `/api/library` | Tracks, newest first |
 | `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, format, takes}` → created tracks (queued) |
 | `GET` | `/api/tracks/:id/audio` | Stream audio (`?download` for an attachment); for a track still rendering, the audio so far with a valid header (Range supported) |

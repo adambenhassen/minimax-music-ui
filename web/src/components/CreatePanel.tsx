@@ -228,7 +228,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
           <Sparkle width={16} height={16} /> {submitting ? 'Queuing…' : form.takes > 1 ? `Create ${form.takes} takes` : 'Create'}
         </button>
         <span className="text-[11px] text-zinc-500">
-          {loading ? 'Loading model…' : online ? `≈ ${estMin} min of GPU time` : health ? 'Inference server offline' : 'Connecting…'}
+          {health?.demo ? 'Demo — the render is simulated; you get a showcase song' : loading ? 'Loading model…' : online ? `≈ ${estMin} min of GPU time` : health ? 'Inference server offline' : 'Connecting…'}
         </span>
       </div>
     </div>

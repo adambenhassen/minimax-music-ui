@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+# Public read-only demo: the normal image + a baked-in showcase library, DEMO=1.
+#   demo/prepare.sh                                # showcase from server/data → demo/data
+#   docker build -t minimax-music-ui .             # base image
+#   docker build -f Dockerfile.demo -t minimax-music-ui-demo .
+# Run it with a read-only root filesystem — nothing is written in demo mode:
+#   docker run --read-only -p 8787:8787 minimax-music-ui-demo
+ARG BASE=minimax-music-ui
+FROM ${BASE}
+COPY --chown=node:node demo/data /data
+ENV DEMO=1

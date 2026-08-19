@@ -99,6 +99,12 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
         <Sidebar view={view} onChange={setView} counts={{ inflight, total: tracks.length }} />
         <main className="flex-1 flex flex-col min-w-0">
+          {health?.demo && (
+            <div className="shrink-0 px-4 md:px-6 py-1.5 text-xs text-sky-200 bg-sky-500/10 border-b border-sky-500/30 text-center">
+              <span className="font-semibold">Demo</span> — a read-only showcase of tracks rendered with MiniMax-Music3. No GPU is attached: <span className="font-semibold">Create</span> simulates a render and hands you one of the showcase songs; your simulated tracks are private to this browser and vanish after a while.
+              {' '}<a className="underline underline-offset-2 hover:text-white" href="https://github.com/adambenhassen/minimax-music-ui" target="_blank" rel="noreferrer">Run it yourself →</a>
+            </div>
+          )}
           <header className="h-14 shrink-0 flex items-center justify-between gap-3 px-4 md:px-6 border-b border-ink-700">
             <h1 className="text-base font-semibold truncate">{view === 'create' ? 'Create' : view === 'library' ? 'Library' : 'Settings'}</h1>
             <div className="flex items-center gap-3 shrink-0">
@@ -117,7 +123,7 @@ export default function App() {
               <section className="p-4 md:p-5 lg:overflow-y-auto lg:min-h-0">{feed}</section>
             </div>
           ) : view === 'settings' ? (
-            <div className="flex-1 min-h-0 overflow-y-auto"><SettingsPanel onSaved={() => void refresh()} /></div>
+            <div className="flex-1 min-h-0 overflow-y-auto"><SettingsPanel onSaved={() => void refresh()} demo={!!health?.demo} /></div>
           ) : (
             <div className="flex-1 min-h-0 flex flex-col">
               <div className="px-5 pt-4">

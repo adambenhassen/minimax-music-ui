@@ -26,13 +26,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultStatic = path.resolve(here, '../../web/dist');
 const staticDir = config.staticDir ?? (fs.existsSync(defaultStatic) ? defaultStatic : null);
 
-const app = createApp({ library, templates, settings, upstream, queue, tracksDir, staticDir });
+const app = createApp({ library, templates, settings, upstream, queue, tracksDir, staticDir, demo: config.demo ? {} : null });
 
 app.listen(config.port, () => {
   console.log(`minimax-music-ui server on http://localhost:${config.port}`);
   console.log(`  upstream: ${effective.musicApi} [${effective.source.musicApi}]${effective.apiKey ? ` (bearer set [${effective.source.apiKey}])` : ''}`);
   console.log(`  data:     ${config.dataDir}`);
   console.log(`  static:   ${staticDir ?? '(none — run web dev server)'}`);
+  if (config.demo) console.log('  DEMO mode: read-only showcase, renders are simulated');
   if (recovered.failed) console.log(`  marked ${recovered.failed} interrupted render(s) as error`);
   if (recovered.resumed) console.log(`  re-queued ${recovered.resumed} pending render(s)`);
 });
