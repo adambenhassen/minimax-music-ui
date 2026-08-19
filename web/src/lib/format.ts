@@ -11,6 +11,15 @@ export function fmtEta(sec: number | null): string {
   return `~${Math.round(sec / 60)} min left`;
 }
 
+/** Compact duration for "took …": 42s, 5m5s, 1h2m. */
+export function fmtTook(sec: number): string {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  if (h) return `${h}h${m}m`;
+  if (m) return `${m}m${s}s`;
+  return `${s}s`;
+}
+
 export function fmtAgo(iso: string): string {
   const d = (Date.now() - new Date(iso).getTime()) / 1000;
   if (d < 60) return 'just now';
