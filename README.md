@@ -24,10 +24,11 @@
 
 - **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed. Output is WAV, as the official route documents.
 - **Templates** — a built-in default plus your own saved templates (style, lyrics, duration), stored server-side.
-- **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the API reports no progress). Cancel while queued or rendering, retry on error.
+- **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the official API reports no progress). Cancel while queued or rendering, retry on error.
+- **Live progress + play while rendering** — when the server is the bundled `inference/server.py` (it advertises `capabilities: ["stream"]` on `/health`), the UI streams real progress (Generating → Rendering, seconds rendered, ETA from the measured rate) and lets you press play on a track that is still rendering; the player buffers when it catches up with the renderer and swaps to the final file seamlessly. Stock `sgl-omni` keeps the estimated bar.
 - **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Search, download, delete, "reuse settings".
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
-- **Health pill** — offline / idle / rendering · N queued (probes `GET /v1/models`).
+- **Health pill** — offline / loading model / idle (· live progress) / rendering · N queued (probes `GET /v1/models` and the optional `GET /health`).
 - **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields.
 - Responsive down to phone width. No external services; everything runs on your machine or tailnet.
 
@@ -108,16 +109,17 @@ The fake upstream (`server/test/fakeUpstream.ts`) implements `GET /v1/models` an
 ```bash
 FAKE_AUDIO=/path/to/real.wav FAKE_RENDER_MS=8000 npm run fake -w server
 FAKE_LOADING=1 npm run fake -w server   # exposes /health → 503, UI shows "Loading model…"
+FAKE_STREAM=1 npm run fake -w server    # advertises streaming; SSE progress + 4 s PCM windows
 ```
 
 ## UI server API
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), queue state |
+| `GET` | `/api/health` | `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), `capabilities` from that `/health`, queue state |
 | `GET` | `/api/library` | Tracks, newest first |
 | `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, format, takes}` → created tracks (queued) |
-| `GET` | `/api/tracks/:id/audio` | Stream audio (`?download` for an attachment) |
+| `GET` | `/api/tracks/:id/audio` | Stream audio (`?download` for an attachment); for a track still rendering, the audio so far with a valid header (Range supported) |
 | `DELETE` | `/api/tracks/:id` | Cancel (dequeue or abort the render), delete file and entry |
 | `GET` | `/api/templates` | Saved templates |
 | `POST` | `/api/templates` | `{name, prompt, lyrics?, duration?, format?}` — same name overwrites |
