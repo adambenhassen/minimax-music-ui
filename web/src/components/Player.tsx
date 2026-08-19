@@ -28,13 +28,24 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
   const live = track?.status === 'running';
   const rendered = track?.renderedSeconds ?? 0;
   const total = track ? (live ? track.duration : dur || track.duration) : 0;
-  // live tracks: bump the url whenever more audio exists so a reload picks up the longer file
-  const src = track ? (live ? `${api.audioUrl(track.id)}?r=${Math.floor(rendered)}` : api.audioUrl(track.id)) : '';
+  // live tracks: bump the url whenever more audio exists so a reload picks up the longer file;
+  // empty while a rendering track has no audio yet (play is armed and starts on the first window)
+  const src = track ? (live ? (rendered > 0 ? `${api.audioUrl(track.id)}?r=${Math.floor(rendered)}` : '') : api.audioUrl(track.id)) : '';
 
   useEffect(() => {
     const el = audio.current;
-    if (!el || !track || !src || loadedSrc.current === src) return;
+    if (!el || !track) return;
     const sameTrack = loadedSrc.current.startsWith(api.audioUrl(track.id));
+    if (!src) {
+      if (sameTrack) return;
+      // armed: nothing to load yet — behave as starved so the first window resumes playback
+      loadedSrc.current = `${api.audioUrl(track.id)}#pending`;
+      el.pause(); el.removeAttribute('src'); el.load();
+      setTime(0); setDur(0); setErr(null);
+      starvedRef.current = true; setStarved(true);
+      return;
+    }
+    if (loadedSrc.current === src) return;
     const nearEnd = el.duration > 0 && el.duration - el.currentTime < 2;
     // Keep playing what we have unless we're about to run dry; a reload costs a small gap.
     if (sameTrack && live && playing && !starved && !nearEnd) return;
@@ -55,7 +66,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
     const el = audio.current;
     if (!el || !track) return;
     if (playing) { if (!starvedRef.current) el.play().catch((e) => setErr(e.message)); }
-    else el.pause();
+    else { el.pause(); starvedRef.current = false; setStarved(false); } // a manual pause also disarms auto-resume
   }, [playing, track]);
 
   useEffect(() => {
@@ -82,7 +93,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
     onEnded();
   };
 
-  const subtitle = err ?? (starved ? 'Buffering — waiting for the renderer…' : live ? `Live · ${fmtTime(rendered)} rendered` : track ? track.prompt : 'Pick a finished track');
+  const subtitle = err ?? (starved && rendered === 0 ? 'Waiting for the first audio…' : starved ? 'Buffering — waiting for the renderer…' : live ? `Live · ${fmtTime(rendered)} rendered` : track ? track.prompt : 'Pick a track');
 
   return (
     <div className="h-20 shrink-0 border-t border-ink-700 bg-ink-900/95 backdrop-blur px-3 md:px-4 flex items-center gap-2 md:gap-4">
@@ -119,7 +130,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
       <div className="flex-1 flex items-center gap-3 min-w-0">
         <span className="text-[11px] text-zinc-400 tabular-nums w-10 text-right">{fmtTime(time)}</span>
         <div className="flex-1 min-w-0">
-          {track ? <Waveform url={src} progress={total ? time / total : 0} coverage={live ? Math.min(1, (dur || rendered) / track.duration) : 1} onSeek={seek} /> : <div className="h-[2px] bg-ink-700 rounded" />}
+          {track && src ? <Waveform url={src} progress={total ? time / total : 0} coverage={live ? Math.min(1, (dur || rendered) / track.duration) : 1} onSeek={seek} /> : <div className="h-[2px] bg-ink-700 rounded" />}
         </div>
         <span className="text-[11px] text-zinc-400 tabular-nums w-10">{fmtTime(total)}</span>
       </div>

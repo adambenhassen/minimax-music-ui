@@ -71,4 +71,5 @@ export interface SettingsTestResult {
 }
 
 export const isInflight = (t: Track) => t.status === 'queued' || t.status === 'running';
-export const isPlayable = (t: Track) => t.status === 'done' || (t.status === 'running' && (t.renderedSeconds ?? 0) > 0);
+/** done, or rendering — pressing play on a rendering track arms it and playback starts when audio arrives */
+export const isPlayable = (t: Track) => t.status === 'done' || t.status === 'running';
