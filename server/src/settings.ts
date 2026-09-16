@@ -103,11 +103,14 @@ export class SettingsStore {
 
   private persist(): Promise<void> {
     const snapshot = JSON.stringify(this.stored, null, 2);
-    this.writing = this.writing.then(async () => {
+    const write = this.writing.then(async () => {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.${process.pid}.tmp`;
       await fs.writeFile(tmp, snapshot, { encoding: 'utf8', mode: 0o600 });
       await fs.rename(tmp, this.file);
+    });
+    this.writing = write.catch((err) => {
+      console.error(`failed to persist ${this.file}:`, err);
     });
     return this.writing;
   }
