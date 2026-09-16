@@ -40,8 +40,9 @@ export class JsonStore<T extends { id: string }> {
   async update(id: string, patch: Partial<T>): Promise<T | undefined> {
     const idx = this.tracks.findIndex((t) => t.id === id);
     if (idx === -1) return undefined;
-    this.tracks[idx] = { ...this.tracks[idx], ...patch };
-    await this.persist();
+    const current = this.tracks[idx];
+    this.tracks[idx] = { ...current, ...patch };
+    if (this.shouldPersistUpdate(current, patch)) await this.persist();
     return this.tracks[idx];
   }
 
@@ -53,16 +54,28 @@ export class JsonStore<T extends { id: string }> {
     return removed;
   }
 
+  protected shouldPersistUpdate(_current: T, _patch: Partial<T>): boolean {
+    return true;
+  }
+
   private persist(): Promise<void> {
     const snapshot = JSON.stringify(this.tracks, null, 2);
-    this.writing = this.writing.then(async () => {
+    const write = this.writing.then(async () => {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.${process.pid}.tmp`;
       await fs.writeFile(tmp, snapshot, 'utf8');
       await fs.rename(tmp, this.file);
     });
+    this.writing = write.catch((err) => {
+      console.error(`failed to persist ${this.file}:`, err);
+    });
     return this.writing;
   }
 }
 
-export class Library extends JsonStore<Track> {}
+export class Library extends JsonStore<Track> {
+  /** Render state is volatile; lifecycle transitions are the durable snapshots. */
+  protected override shouldPersistUpdate(current: Track, patch: Partial<Track>): boolean {
+    return patch.status !== undefined && patch.status !== current.status;
+  }
+}
