@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeEnhance, normalizeGenerate, ValidationError } from '../src/validate.js';
+import { normalizeEnhance, normalizeGenerate, normalizeLyrics, ValidationError } from '../src/validate.js';
 
 describe('normalizeGenerate', () => {
   it('rejects empty prompt', () => {
@@ -39,5 +39,15 @@ describe('normalizeEnhance', () => {
     expect(() => normalizeEnhance(null)).toThrow(/object/);
     expect(normalizeEnhance({ prompt: ' a ', lyrics: ' [Verse] ', instrumental: true })).toEqual({ prompt: 'a', lyrics: '[Verse]', instrumental: true });
     expect(normalizeEnhance({ prompt: 'a', instrumental: 'yes' })).toEqual({ prompt: 'a', lyrics: '', instrumental: false });
+  });
+});
+
+describe('normalizeLyrics', () => {
+  it('requires a prompt; clamps and defaults the duration', () => {
+    expect(() => normalizeLyrics({ prompt: ' ' })).toThrow(/prompt is required/);
+    expect(() => normalizeLyrics({ prompt: 'a', duration: 'x' })).toThrow(/duration must be a number/);
+    expect(normalizeLyrics({ prompt: ' a ' })).toEqual({ prompt: 'a', duration: 60 });
+    expect(normalizeLyrics({ prompt: 'a', duration: 999 })).toEqual({ prompt: 'a', duration: 360 });
+    expect(normalizeLyrics({ prompt: 'a', duration: 1 })).toEqual({ prompt: 'a', duration: 5 });
   });
 });

@@ -65,3 +65,9 @@ export interface EnhanceRequest {
   lyrics: string;
   instrumental: boolean;
 }
+
+export interface LyricsRequest {
+  prompt: string;
+  /** seconds; sizes the lyrics */
+  duration: number;
+}

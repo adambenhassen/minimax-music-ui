@@ -16,7 +16,7 @@ export interface FakeLlmRequest {
   body: {
     model: string;
     messages: { role: string; content: string | null; tool_call_id?: string }[];
-    tools: { function: { name: string } }[];
+    tools?: { function: { name: string } }[];
   };
 }
 

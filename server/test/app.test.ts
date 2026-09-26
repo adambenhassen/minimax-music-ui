@@ -275,6 +275,20 @@ describe('app', () => {
     expect(fake!.requests.some((r) => r.path.includes('speech'))).toBe(false);
   });
 
+  it('lyrics: 400 without a prompt, 409 until an LLM is configured, then returns lyrics', async () => {
+    const { app } = await setup();
+    expect((await request(app).post('/api/lyrics').send({ prompt: '' })).status).toBe(400);
+    const off = await request(app).post('/api/lyrics').send({ prompt: 'night drive', duration: 30 });
+    expect(off.status).toBe(409);
+    expect(off.body.error).toMatch(/not configured/);
+    llm = await startFakeLlm([{ content: '[Verse]\nNeon' }]);
+    await request(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
+    const on = await request(app).post('/api/lyrics').send({ prompt: 'night drive', duration: 30 });
+    expect(on.status).toBe(200);
+    expect(on.body).toEqual({ lyrics: '[Verse]\nNeon' });
+    expect(llm.requests[0].body.messages[1].content).toContain('Target length: 30 s');
+  });
+
   it('enhance: LLM failure maps to 502 with the reason', async () => {
     const { app, dir } = await setup();
     await seedSkill(dir);

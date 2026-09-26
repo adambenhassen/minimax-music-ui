@@ -154,6 +154,7 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
   r.post('/api/settings/test', readOnly);
   r.post('/api/templates', readOnly);
   r.post('/api/enhance', readOnly);
+  r.post('/api/lyrics', readOnly);
   r.delete('/api/templates/:id', readOnly);
 
   return r;

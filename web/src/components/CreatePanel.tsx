@@ -68,6 +68,10 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
   /** prompt before the last enhance; offered as undo while the enhanced text is untouched */
   const [undo, setUndo] = useState<{ before: string; after: string } | null>(null);
+  const [writingLyrics, setWritingLyrics] = useState(false);
+  const [lyricsError, setLyricsError] = useState<string | null>(null);
+  /** lyrics before the last write; offered as undo while the written text is untouched */
+  const [lyricsUndo, setLyricsUndo] = useState<{ before: string; after: string } | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => onFormChange({ ...form, [k]: v });
 
 
@@ -75,8 +79,11 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const loading = online && !health!.ready;
   const canSubmit = online && !loading && form.prompt.trim().length > 0 && !submitting;
   const canStream = !!health?.capabilities?.includes('stream');
-  const canEnhance = !!health?.enhance && form.prompt.trim().length > 0 && !enhancing;
+  // the wands read each other's field, so they never run at once
+  const canEnhance = !!health?.enhance && form.prompt.trim().length > 0 && !enhancing && !writingLyrics;
   const enhanceTitle = health?.demo ? 'Not available in the demo' : !health?.enhance ? 'Set an LLM in Settings to enhance prompts' : 'Enhance prompt with MiniMax’s caption rewriter';
+  const canWriteLyrics = !!health?.enhance && form.prompt.trim().length > 0 && !writingLyrics && !enhancing;
+  const lyricsTitle = health?.demo ? 'Not available in the demo' : !health?.enhance ? 'Set an LLM in Settings to write lyrics' : !form.prompt.trim() ? 'Describe the song first' : 'Write lyrics from the song description';
   const estMin = useMemo(() => Math.round((form.duration * 3 * form.takes) / 60 * 10) / 10, [form.duration, form.takes]);
 
   const submit = async () => {
@@ -114,6 +121,21 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
       setEnhanceError((err as Error).message);
     } finally {
       setEnhancing(false);
+    }
+  };
+
+  const writeLyrics = async () => {
+    setLyricsError(null);
+    setWritingLyrics(true);
+    try {
+      const before = form.lyrics;
+      const { lyrics } = await api.lyrics({ prompt: form.prompt.trim(), duration: form.duration });
+      setLyricsUndo({ before, after: lyrics });
+      onFormChange((f) => ({ ...f, lyrics }));
+    } catch (err) {
+      setLyricsError((err as Error).message);
+    } finally {
+      setWritingLyrics(false);
     }
   };
 
@@ -185,16 +207,7 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
             className={`field resize-y leading-relaxed pr-10 ${enhancing ? 'opacity-60' : ''}`}
             placeholder={TEMPLATE_PROMPT}
           />
-          <button
-            type="button"
-            aria-label="Enhance prompt"
-            title={enhanceTitle}
-            disabled={!canEnhance}
-            onClick={() => void enhance()}
-            className="absolute top-2 right-2 p-1.5 rounded-md text-zinc-400 hover:text-accent hover:bg-ink-700 transition disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
-          >
-            {enhancing ? <Spinner width={16} height={16} /> : <Wand width={16} height={16} />}
-          </button>
+          <WandButton label="Enhance prompt" title={enhanceTitle} busy={enhancing} disabled={!canEnhance} onClick={() => void enhance()} />
         </div>
         {enhanceError && <div className="text-xs text-red-400 mt-1">Enhance failed: {enhanceError}</div>}
         {enhancing && <div className="text-[11px] text-zinc-500 mt-1">Rewriting with MiniMax’s caption rewriter… this can take a minute.</div>}
@@ -208,7 +221,20 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
       {!form.instrumental && (
         <div>
           <div className="label mb-1">Lyrics</div>
-          <LyricsEditor value={form.lyrics} onChange={(v) => set('lyrics', v)} rows={form.mode === 'simple' ? 6 : 10} />
+          <LyricsEditor
+            value={form.lyrics}
+            onChange={(v) => set('lyrics', v)}
+            rows={form.mode === 'simple' ? 6 : 10}
+            readOnly={writingLyrics}
+            action={<WandButton label="Write lyrics" title={lyricsTitle} busy={writingLyrics} disabled={!canWriteLyrics} onClick={() => void writeLyrics()} />}
+          />
+          {lyricsError && <div className="text-xs text-red-400 mt-1">Writing lyrics failed: {lyricsError}</div>}
+          {writingLyrics && <div className="text-[11px] text-zinc-500 mt-1">Writing lyrics for a {form.duration}s song…</div>}
+          {lyricsUndo && !writingLyrics && form.lyrics === lyricsUndo.after && (
+            <button type="button" className="text-[11px] text-zinc-400 hover:text-white mt-1" onClick={() => { onFormChange((f) => ({ ...f, lyrics: lyricsUndo.before })); setLyricsUndo(null); }}>
+              Undo lyrics
+            </button>
+          )}
         </div>
       )}
 
@@ -274,5 +300,20 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
         </span>
       </div>
     </div>
+  );
+}
+
+function WandButton({ label, title, busy, disabled, onClick }: { label: string; title: string; busy: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className="absolute top-2 right-2 p-1.5 rounded-md text-zinc-400 hover:text-accent hover:bg-ink-700 transition disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+    >
+      {busy ? <Spinner width={16} height={16} /> : <Wand width={16} height={16} />}
+    </button>
   );
 }

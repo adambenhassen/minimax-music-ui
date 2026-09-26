@@ -19,6 +19,8 @@ export const api = {
     fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then((r) => json<Track[]>(r)),
   enhance: (input: { prompt: string; lyrics: string; instrumental: boolean }) =>
     fetch('/api/enhance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then((r) => json<{ prompt: string }>(r)),
+  lyrics: (input: { prompt: string; duration: number }) =>
+    fetch('/api/lyrics', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then((r) => json<{ lyrics: string }>(r)),
   deleteTrack: (id: string) => fetch(`/api/tracks/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: true }>(r)),
   templates: () => fetch('/api/templates').then((r) => json<Template[]>(r)),
   saveTemplate: (t: Omit<Template, 'id' | 'createdAt'>) =>

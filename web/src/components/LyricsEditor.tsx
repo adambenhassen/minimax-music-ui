@@ -1,8 +1,9 @@
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 
 const TAGS = ['Intro', 'Verse', 'Pre-Chorus', 'Chorus', 'Bridge', 'Outro', 'Instrumental'];
 
-export function LyricsEditor({ value, onChange, rows = 10 }: { value: string; onChange: (v: string) => void; rows?: number }) {
+/** `action` renders at the textarea's top-right corner (e.g. a wand button); `readOnly` locks the text and the tag chips, and dims them. */
+export function LyricsEditor({ value, onChange, rows = 10, action, readOnly = false }: { value: string; onChange: (v: string) => void; rows?: number; action?: ReactNode; readOnly?: boolean }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const insertTag = (tag: string) => {
@@ -25,17 +26,21 @@ export function LyricsEditor({ value, onChange, rows = 10 }: { value: string; on
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
         {TAGS.map((t) => (
-          <button key={t} type="button" className="chip" onClick={() => insertTag(t)}>[{t}]</button>
+          <button key={t} type="button" className="chip disabled:opacity-40" disabled={readOnly} onClick={() => insertTag(t)}>[{t}]</button>
         ))}
       </div>
-      <textarea
-        ref={ref}
-        rows={rows}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="field font-mono text-[13px] leading-relaxed resize-y"
-        placeholder={'[Verse]\nMorning light filtering through the pine\nEvery quiet street is yours and mine\n[Chorus]\nSoftly the world begins to breathe\n\nLeave empty for an instrumental.'}
-      />
+      <div className="relative">
+        <textarea
+          ref={ref}
+          rows={rows}
+          value={value}
+          readOnly={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+          className={`field font-mono text-[13px] leading-relaxed resize-y ${action ? 'pr-10' : ''} ${readOnly ? 'opacity-60' : ''}`}
+          placeholder={'[Verse]\nMorning light filtering through the pine\nEvery quiet street is yours and mine\n[Chorus]\nSoftly the world begins to breathe\n\nLeave empty for an instrumental.'}
+        />
+        {action}
+      </div>
     </div>
   );
 }

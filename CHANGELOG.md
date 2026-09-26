@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Lyrics writing: a wand on the lyrics field writes original lyrics from the song description, sized to the duration, with the model's section tags; undo restores the previous lyrics. Uses the prompt-enhancement LLM; hidden for instrumentals, disabled in the demo.
+
 ## v0.1.2 — 2026-09-26
 
 ### Fixes

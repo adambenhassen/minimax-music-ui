@@ -5,7 +5,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { JsonStore, Library } from './library.js';
 import { extFor, RenderQueue, UpstreamClient, UpstreamError } from './upstream.js';
-import { normalizeEnhance, normalizeGenerate, ValidationError } from './validate.js';
+import { normalizeEnhance, normalizeGenerate, normalizeLyrics, ValidationError } from './validate.js';
+import { writeLyrics } from './lyrics.js';
 import { EnhanceError, enhancePrompt, type SkillFiles } from './enhance.js';
 import { normalizeMusicApi, SettingsStore } from './settings.js';
 import { randomTitle } from './names.js';
@@ -121,6 +122,17 @@ export function createApp(deps: AppDeps) {
       const llm = settings.llm();
       if (!llm) return res.status(409).json({ error: 'Prompt enhancement is not configured — set an LLM in Settings' });
       res.json({ prompt: await enhancePrompt(input, llm, deps.skill) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/lyrics', async (req, res, next) => {
+    try {
+      const input = normalizeLyrics(req.body);
+      const llm = settings.llm();
+      if (!llm) return res.status(409).json({ error: 'Lyrics writing is not configured — set an LLM in Settings' });
+      res.json({ lyrics: await writeLyrics(input, llm) });
     } catch (err) {
       next(err);
     }

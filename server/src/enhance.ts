@@ -97,7 +97,8 @@ async function runTool(call: ToolCall, skill: SkillFiles, signal: AbortSignal): 
   }
 }
 
-async function complete(llm: LlmConfig, messages: ChatMessage[], signal: AbortSignal): Promise<ChatMessage> {
+/** One OpenAI-compatible chat completion; failures map to EnhanceError (502, or 504 once `signal` times out). */
+export async function chatComplete(llm: LlmConfig, messages: ChatMessage[], signal: AbortSignal, tools?: unknown[]): Promise<ChatMessage> {
   const failed = (err: unknown, what: string) =>
     signal.aborted ? new EnhanceError('enhancement timed out', 504) : new EnhanceError(`${what}: ${(err as Error).message}`, 502);
   let res: Response;
@@ -105,7 +106,7 @@ async function complete(llm: LlmConfig, messages: ChatMessage[], signal: AbortSi
     res = await fetch(`${llm.url}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {}) },
-      body: JSON.stringify({ model: llm.model, messages, tools: TOOLS }),
+      body: JSON.stringify({ model: llm.model, messages, ...(tools ? { tools } : {}) }),
       signal,
     });
   } catch (err) {
@@ -154,7 +155,7 @@ export async function enhancePrompt(input: EnhanceRequest, llm: LlmConfig, skill
     { role: 'user', content: userMessage(input) },
   ];
   for (let round = 0; ; round++) {
-    const msg = await complete(llm, messages, signal);
+    const msg = await chatComplete(llm, messages, signal, TOOLS);
     if (!msg.tool_calls?.length) {
       const caption = (msg.content ?? '').trim();
       if (!caption) throw new EnhanceError('the LLM returned an empty caption', 502);

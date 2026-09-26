@@ -32,7 +32,7 @@ describe('enhancePrompt', () => {
     expect(first.body.messages[0].role).toBe('system');
     expect(first.body.messages[0].content).toMatch(/^# skill body/);
     expect(first.body.messages[1]).toEqual({ role: 'user', content: 'Caption: sad piano\n\nLyrics:\n[Verse]\nla la' });
-    expect(first.body.tools.map((t) => t.function.name)).toEqual(['read_file']);
+    expect(first.body.tools!.map((t) => t.function.name)).toEqual(['read_file']);
     expect(first.auth).toBeUndefined();
     expect(second.body.messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'call_0_0', content: 'ROUTER' });
   });

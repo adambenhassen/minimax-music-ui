@@ -1,4 +1,4 @@
-import { FORMATS, type EnhanceRequest, type GenerateRequest } from './types.js';
+import { FORMATS, type EnhanceRequest, type GenerateRequest, type LyricsRequest } from './types.js';
 
 export class ValidationError extends Error {
   status = 400;
@@ -50,4 +50,14 @@ export function normalizeEnhance(body: unknown): EnhanceRequest {
   if (!prompt) throw new ValidationError('prompt is required');
   const lyrics = typeof b.lyrics === 'string' ? b.lyrics.trim() : '';
   return { prompt, lyrics, instrumental: b.instrumental === true };
+}
+
+export function normalizeLyrics(body: unknown): LyricsRequest {
+  if (!body || typeof body !== 'object') throw new ValidationError('body must be an object');
+  const b = body as Record<string, unknown>;
+  const prompt = typeof b.prompt === 'string' ? b.prompt.trim() : '';
+  if (!prompt) throw new ValidationError('prompt is required');
+  const durationRaw = b.duration === undefined ? 60 : Number(b.duration);
+  if (!Number.isFinite(durationRaw)) throw new ValidationError('duration must be a number');
+  return { prompt, duration: clamp(Math.round(durationRaw), 5, 360) };
 }

@@ -55,6 +55,7 @@ describe('demo mode', () => {
     expect(lib.get('s1')).toBeDefined();
     expect((await request(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(403);
     expect((await request(app).post('/api/enhance').send({ prompt: 'x' })).status).toBe(403);
+    expect((await request(app).post('/api/lyrics').send({ prompt: 'x' })).status).toBe(403);
     expect((await request(app).post('/api/settings/test').send({})).status).toBe(403);
     expect((await request(app).post('/api/templates').send({ name: 'n', prompt: 'p' })).status).toBe(403);
     expect((await request(app).delete('/api/templates/x')).status).toBe(403);
