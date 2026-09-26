@@ -10,7 +10,8 @@ RUN npm ci
 COPY server server
 COPY web web
 RUN npm run build \
- && npm prune --omit=dev
+ && npm prune --omit=dev \
+ && mkdir -p server/node_modules
 
 # ---- runtime -------------------------------------------------------------
 FROM node:22-alpine
@@ -22,6 +23,8 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/package.json ./server/
+# npm may nest a workspace's deps here instead of hoisting them (e.g. undici)
+COPY --from=build /app/server/node_modules ./server/node_modules
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/web/dist ./web/dist
 RUN mkdir -p /data && chown -R node:node /data /app
