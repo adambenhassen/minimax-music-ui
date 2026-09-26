@@ -123,6 +123,7 @@ The inference server address is resolved in this order:
 | `LLM_API` | – | OpenAI-compatible base URL incl. `/v1` for prompt enhancement, e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1` (overrides Settings) |
 | `LLM_API_KEY` | – | Bearer key for `LLM_API`, if it needs one (overrides Settings) |
 | `LLM_MODEL` | – | Chat model with tool calling, e.g. `gpt-4.1-mini` (overrides Settings) |
+| `UPSTREAM_TIMEOUT_MS` | `0` | Max wait for a render's response (and between its chunks); `0` = no limit. The official route sends nothing until the song is done, so long songs need minutes |
 | `PORT` | `8787` | Port for the UI server |
 | `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
 | `STATIC_DIR` | `web/dist` (if built) | Directory of the built SPA to serve |

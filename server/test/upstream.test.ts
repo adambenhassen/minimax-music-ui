@@ -41,3 +41,29 @@ describe('UpstreamClient streaming', () => {
     await expect(c.speechStream(body, path.join(os.tmpdir(), 'x.wav'), () => {})).rejects.toThrow(/400/);
   });
 });
+
+describe('UpstreamClient render timeout', () => {
+  const dest = async () => path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'up-')), 'a.wav');
+
+  it('a render slower than UPSTREAM_TIMEOUT_MS fails as a timeout, not as unreachable', async () => {
+    fake = await startFakeUpstream({ renderMs: 2500 }); // undici checks timeouts on a ~1 s tick, so leave headroom
+    const c = new UpstreamClient(fake.url, null, false, 200);
+    await expect(c.speechToFile(body, await dest())).rejects.toThrow('upstream timed out after 0.2s waiting for the render');
+  });
+
+  it('no timeout (0): waits for a render however long it takes', async () => {
+    fake = await startFakeUpstream({ renderMs: 400 });
+    const c = new UpstreamClient(fake.url, null, false, 0);
+    const out = await dest();
+    await c.speechToFile(body, out);
+    expect((await fs.readFile(out)).toString()).toBe('RIFF-fake-audio');
+  });
+
+  it('user cancel still aborts a render with no timeout', async () => {
+    fake = await startFakeUpstream({ renderMs: 2000 });
+    const c = new UpstreamClient(fake.url);
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 100);
+    await expect(c.speechToFile(body, await dest(), ac.signal)).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});

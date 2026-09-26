@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix renders longer than 5 minutes failing with "upstream unreachable: fetch failed": the HTTP client's 300 s header/body timeouts are off for `/v1/audio/speech` (optional `UPSTREAM_TIMEOUT_MS`), and a timeout is reported as "upstream timed out after Ns".
 - Prompt enhancement: magic-wand button on the prompt field runs MiniMax's `music-caption-rewriter` skill on an OpenAI-compatible LLM (Settings or `LLM_API` / `LLM_API_KEY` / `LLM_MODEL`); undo restores the original text. Disabled in the demo.
 
 ## v0.1.0 — 2026-08-19

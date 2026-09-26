@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { Agent, fetch as undiciFetch, type Response as UndiciResponse } from 'undici';
 import type { Library } from './library.js';
 import type { Track } from './types.js';
 import { parseSse } from './sse.js';
@@ -54,8 +55,18 @@ export class UpstreamClient {
   private capabilities: string[] = [];
   private probed = false;
 
-  /** `compat`: pretend the server is stock sgl-omni — skip GET /health, so no loading state and no extras. */
-  constructor(private baseUrl: string, private apiKey: string | null = null, private compat = false) {}
+  /**
+   * `compat`: pretend the server is stock sgl-omni — skip GET /health, so no loading state and no extras.
+   * `timeoutMs`: limit on waiting for /v1/audio/speech headers and between body chunks; 0 = none. The route
+   * sends nothing until the whole song is rendered, so undici's 300 s defaults would cut long renders off.
+   */
+  constructor(private baseUrl: string, private apiKey: string | null = null, private compat = false, private readonly timeoutMs = 0) {}
+
+  private _speechAgent: Agent | null = null;
+  /** Lazy: callers that only ever probe health() (e.g. the settings "test connection" route) shouldn't pay for a connection pool they never use. */
+  private get speechAgent(): Agent {
+    return (this._speechAgent ??= new Agent({ headersTimeout: this.timeoutMs, bodyTimeout: this.timeoutMs }));
+  }
 
   configure(baseUrl: string, apiKey: string | null, compat = false): void {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -131,7 +142,15 @@ export class UpstreamClient {
     }
   }
 
-  private async post(body: SpeechBody, stream: boolean, signal?: AbortSignal, extra: Record<string, unknown> = {}): Promise<Response> {
+  /** undici's headers/body timeout (only when `timeoutMs` is set): the server is reachable, just slower than the limit. */
+  private timedOut(err: unknown): UpstreamError | null {
+    const e = err as { code?: string; cause?: { code?: string } };
+    const code = e.cause?.code ?? e.code;
+    if (code !== 'UND_ERR_HEADERS_TIMEOUT' && code !== 'UND_ERR_BODY_TIMEOUT') return null;
+    return new UpstreamError(`upstream timed out after ${this.timeoutMs / 1000}s waiting for the render`);
+  }
+
+  private async post(body: SpeechBody, stream: boolean, signal?: AbortSignal, extra: Record<string, unknown> = {}): Promise<UndiciResponse> {
     await this.ensureProbed();
     const payload = {
       model: this.model,
@@ -143,17 +162,18 @@ export class UpstreamClient {
       ...(body.seed !== null ? { seed: body.seed } : {}),
       ...extra,
     };
-    let res: Response;
+    let res: UndiciResponse;
     try {
-      res = await fetch(`${this.baseUrl}/v1/audio/speech`, {
+      res = await undiciFetch(`${this.baseUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: this.headers({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),
         signal,
+        dispatcher: this.speechAgent,
       });
     } catch (err) {
       if ((err as Error).name === 'AbortError') throw err;
-      throw new UpstreamError(`upstream unreachable: ${(err as Error).message}`);
+      throw this.timedOut(err) ?? new UpstreamError(`upstream unreachable: ${(err as Error).message}`);
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -162,7 +182,7 @@ export class UpstreamClient {
     return res;
   }
 
-  private static seedOf(res: Response): number | null {
+  private static seedOf(res: UndiciResponse): number | null {
     const h = res.headers.get('x-seed');
     return h !== null && h !== '' && Number.isFinite(Number(h)) ? Number(h) : null;
   }
@@ -172,7 +192,11 @@ export class UpstreamClient {
     const res = await this.post(body, false, signal);
     if (!res.body) throw new UpstreamError('empty audio body');
     await fsp.mkdir(path.dirname(dest), { recursive: true });
-    await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), fs.createWriteStream(dest), { signal });
+    try {
+      await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(dest), { signal });
+    } catch (err) {
+      throw this.timedOut(err) ?? err;
+    }
     return { seed: UpstreamClient.seedOf(res) };
   }
 
@@ -214,6 +238,8 @@ export class UpstreamClient {
       if (!finished) throw new UpstreamError('upstream stream ended before done');
       if (!header) throw new UpstreamError('upstream stream carried no audio');
       await fd.write(patchWavSizes(header, WAV_HEADER_BYTES + dataBytes), 0, WAV_HEADER_BYTES, 0);
+    } catch (err) {
+      throw this.timedOut(err) ?? err;
     } finally {
       await fd.close();
     }

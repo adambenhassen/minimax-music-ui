@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "undici": "^7.30.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
