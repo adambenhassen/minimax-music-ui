@@ -1,7 +1,7 @@
 {
   "name": "minimax-music-ui",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "workspaces": [
     "server",
     "web"

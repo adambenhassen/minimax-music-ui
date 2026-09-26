@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.2 — 2026-09-26
+
+### Fixes
+- Docker image: include the server workspace's own `node_modules`, so the image starts again (v0.1.1 exited with `ERR_MODULE_NOT_FOUND` for `undici`).
+
 ## v0.1.1 — 2026-09-26
 
 ### Create
