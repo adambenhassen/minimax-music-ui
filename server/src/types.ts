@@ -52,3 +52,16 @@ export interface Template {
 
 /** Output formats — the official /v1/audio/speech route documents wav only. */
 export const FORMATS = ['wav'];
+
+/** OpenAI-compatible chat endpoint used for prompt enhancement; `url` includes `/v1`. */
+export interface LlmConfig {
+  url: string;
+  apiKey: string | null;
+  model: string;
+}
+
+export interface EnhanceRequest {
+  prompt: string;
+  lyrics: string;
+  instrumental: boolean;
+}

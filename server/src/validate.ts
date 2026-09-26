@@ -1,4 +1,4 @@
-import { FORMATS, type GenerateRequest } from './types.js';
+import { FORMATS, type EnhanceRequest, type GenerateRequest } from './types.js';
 
 export class ValidationError extends Error {
   status = 400;
@@ -41,4 +41,13 @@ export function normalizeGenerate(body: unknown): GenerateRequest {
   const stream = b.stream === true;
 
   return { title, prompt, lyrics, duration, seed, format, takes, stream };
+}
+
+export function normalizeEnhance(body: unknown): EnhanceRequest {
+  if (!body || typeof body !== 'object') throw new ValidationError('body must be an object');
+  const b = body as Record<string, unknown>;
+  const prompt = typeof b.prompt === 'string' ? b.prompt.trim() : '';
+  if (!prompt) throw new ValidationError('prompt is required');
+  const lyrics = typeof b.lyrics === 'string' ? b.lyrics.trim() : '';
+  return { prompt, lyrics, instrumental: b.instrumental === true };
 }

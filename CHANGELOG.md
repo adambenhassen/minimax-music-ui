@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Prompt enhancement: magic-wand button on the prompt field runs MiniMax's `music-caption-rewriter` skill on an OpenAI-compatible LLM (Settings or `LLM_API` / `LLM_API_KEY` / `LLM_MODEL`); undo restores the original text. Disabled in the demo.
+
 ## v0.1.0 — 2026-08-19
 
 First release. Live demo: https://demo-minimax-music.adambh.dev

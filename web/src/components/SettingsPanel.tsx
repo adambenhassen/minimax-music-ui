@@ -8,10 +8,15 @@ export function SettingsPanel({ onSaved, demo = false }: { onSaved: () => void; 
   const [musicApi, setMusicApi] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [clearKey, setClearKey] = useState(false);
-  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'test' | 'llm' | null>(null);
   const [test, setTest] = useState<SettingsTestResult | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [compatMsg, setCompatMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [llmApi, setLlmApi] = useState('');
+  const [llmModel, setLlmModel] = useState('');
+  const [llmKey, setLlmKey] = useState('');
+  const [clearLlmKey, setClearLlmKey] = useState(false);
+  const [llmMsg, setLlmMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const load = async () => {
     const s = await api.settings();
@@ -19,6 +24,10 @@ export function SettingsPanel({ onSaved, demo = false }: { onSaved: () => void; 
     setMusicApi(s.musicApi);
     setApiKey('');
     setClearKey(false);
+    setLlmApi(s.llmApi ?? '');
+    setLlmModel(s.llmModel ?? '');
+    setLlmKey('');
+    setClearLlmKey(false);
   };
   useEffect(() => { load().catch((e) => setMsg({ kind: 'err', text: (e as Error).message })); }, []);
 
@@ -26,6 +35,26 @@ export function SettingsPanel({ onSaved, demo = false }: { onSaved: () => void; 
 
   const dirty = musicApi.trim() !== settings.musicApi || apiKey !== '' || clearKey;
   const keyPatch = () => (clearKey ? '' : apiKey.trim() ? apiKey.trim() : undefined);
+  const llmDirty = llmApi.trim() !== (settings.llmApi ?? '') || llmModel.trim() !== (settings.llmModel ?? '') || llmKey !== '' || clearLlmKey;
+
+  const saveLlm = async () => {
+    setBusy('llm'); setLlmMsg(null);
+    try {
+      const patch: { llmApi?: string; llmApiKey?: string; llmModel?: string } = {};
+      if (!settings.locked.llmApi && llmApi.trim() !== (settings.llmApi ?? '')) patch.llmApi = llmApi.trim();
+      if (!settings.locked.llmModel && llmModel.trim() !== (settings.llmModel ?? '')) patch.llmModel = llmModel.trim();
+      const k = clearLlmKey ? '' : llmKey.trim() ? llmKey.trim() : undefined;
+      if (!settings.locked.llmApiKey && k !== undefined) patch.llmApiKey = k;
+      const s = await api.saveSettings(patch);
+      setSettings(s); setLlmApi(s.llmApi ?? ''); setLlmModel(s.llmModel ?? ''); setLlmKey(''); setClearLlmKey(false);
+      setLlmMsg({ kind: 'ok', text: s.llmApi && s.llmModel ? 'Saved. The magic wand on the prompt field is ready.' : 'Saved. Set both URL and model to enable the magic wand.' });
+      onSaved();
+    } catch (e) {
+      setLlmMsg({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const doTest = async () => {
     setBusy('test'); setTest(null); setMsg(null);
@@ -155,6 +184,69 @@ export function SettingsPanel({ onSaved, demo = false }: { onSaved: () => void; 
           </div>
         )}
         {msg && <div className={`text-xs ${msg.kind === 'ok' ? 'text-emerald-300' : 'text-red-400'}`}>{msg.text}</div>}
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">Prompt enhancement</h2>
+          <p className="text-xs text-zinc-500 mt-1">
+            The magic wand on the prompt field rewrites your description with MiniMax's <code className="text-zinc-300">music-caption-rewriter</code> skill, run on any OpenAI-compatible chat model with tool calling (OpenAI, OpenRouter, Ollama, vLLM, LM Studio…). Skill files are fetched from MiniMax's GitHub on first use and cached in <code className="text-zinc-300">data/skill-cache/</code>. <code className="text-zinc-300">LLM_API</code> / <code className="text-zinc-300">LLM_API_KEY</code> / <code className="text-zinc-300">LLM_MODEL</code> from the environment override and lock these fields.
+          </p>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="label" htmlFor="llmApi">LLM base URL</label>
+            <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+              {settings.locked.llmApi && <Lock width={11} height={11} />}
+              {sourceLabel(settings.source.llmApi)}
+            </span>
+          </div>
+          <input id="llmApi" className="field font-mono disabled:opacity-60" value={llmApi} disabled={settings.locked.llmApi} onChange={(e) => setLlmApi(e.target.value)} placeholder="https://api.openai.com/v1 · http://localhost:11434/v1" spellCheck={false} />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="label" htmlFor="llmModel">Model</label>
+            <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+              {settings.locked.llmModel && <Lock width={11} height={11} />}
+              {sourceLabel(settings.source.llmModel)}
+            </span>
+          </div>
+          <input id="llmModel" className="field font-mono disabled:opacity-60" value={llmModel} disabled={settings.locked.llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="gpt-4.1-mini · qwen3:14b" spellCheck={false} />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="label" htmlFor="llmKey">API key <span className="text-zinc-600 normal-case tracking-normal">(optional)</span></label>
+            <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+              {settings.locked.llmApiKey && <Lock width={11} height={11} />}
+              {sourceLabel(settings.source.llmApiKey)}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              id="llmKey"
+              type="password"
+              className="field font-mono disabled:opacity-60"
+              value={llmKey}
+              disabled={settings.locked.llmApiKey || clearLlmKey}
+              onChange={(e) => setLlmKey(e.target.value)}
+              placeholder={settings.locked.llmApiKey ? '•••••••• (from environment)' : settings.llmKeySet ? '•••••••• (saved — enter a new key to replace)' : 'Not needed for local servers like Ollama'}
+              autoComplete="off"
+            />
+            {settings.llmKeySet && !settings.locked.llmApiKey && (
+              <button type="button" className={`btn-ghost text-xs shrink-0 ${clearLlmKey ? 'bg-ink-700 text-white' : ''}`} onClick={() => { setClearLlmKey((c) => !c); setLlmKey(''); }}>
+                {clearLlmKey ? 'Will clear' : 'Clear key'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 pt-1">
+          <button type="button" className="btn-primary" disabled={busy !== null || !llmDirty} onClick={() => void saveLlm()}>{busy === 'llm' ? 'Saving…' : 'Save'}</button>
+        </div>
+        {llmMsg && <div className={`text-xs ${llmMsg.kind === 'ok' ? 'text-emerald-300' : 'text-red-400'}`}>{llmMsg.text}</div>}
       </section>
 
       <section className="space-y-3">

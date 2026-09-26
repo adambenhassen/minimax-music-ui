@@ -97,7 +97,7 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
   const r = Router();
 
   r.get('/api/health', (_req, res) => {
-    res.json({ demo: true, upstreamReachable: true, ready: true, busy: false, queued: 0, formats: FORMATS, capabilities: [], models: [] });
+    res.json({ demo: true, upstreamReachable: true, ready: true, busy: false, queued: 0, formats: FORMATS, capabilities: [], models: [], enhance: false });
   });
 
   r.get('/api/library', (req, res) => {
@@ -153,6 +153,7 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
   r.put('/api/settings', readOnly);
   r.post('/api/settings/test', readOnly);
   r.post('/api/templates', readOnly);
+  r.post('/api/enhance', readOnly);
   r.delete('/api/templates/:id', readOnly);
 
   return r;

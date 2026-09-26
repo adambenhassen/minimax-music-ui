@@ -37,6 +37,8 @@ export interface Health {
   models?: string[];
   /** optional upstream extras, e.g. "stream" (live progress + play-while-rendering) */
   capabilities?: string[];
+  /** an LLM is configured, so the prompt can be rewritten with MiniMax's caption-rewriter skill */
+  enhance?: boolean;
   error?: string;
 }
 
@@ -66,8 +68,15 @@ export interface Settings {
   apiKeySet: boolean;
   /** debug/testing: treat the server as stock sgl-omni (no /health, no streaming) */
   compat: boolean;
-  source: { musicApi: 'env' | 'settings' | 'default'; apiKey: 'env' | 'settings' | 'none' };
-  locked: { musicApi: boolean; apiKey: boolean };
+  /** OpenAI-compatible LLM for prompt enhancement */
+  llmApi: string | null;
+  llmModel: string | null;
+  llmKeySet: boolean;
+  source: {
+    musicApi: 'env' | 'settings' | 'default'; apiKey: 'env' | 'settings' | 'none';
+    llmApi: 'env' | 'settings' | 'none'; llmApiKey: 'env' | 'settings' | 'none'; llmModel: 'env' | 'settings' | 'none';
+  };
+  locked: { musicApi: boolean; apiKey: boolean; llmApi: boolean; llmApiKey: boolean; llmModel: boolean };
 }
 
 export interface SettingsTestResult {

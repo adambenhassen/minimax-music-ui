@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { api } from '../api';
 import type { GenerateInput, Health, Track } from '../types';
 import { LyricsEditor } from './LyricsEditor';
 import { TemplatesMenu, type TemplateValues } from './TemplatesMenu';
-import { Chevron, Sparkle } from './Icons';
+import { Chevron, Sparkle, Spinner, Wand } from './Icons';
 
 export const TEMPLATE_PROMPT = 'Genre: acoustic pop. BPM: 96. Key: C major. Warm and intimate, building gently into the chorus. Vocals: soft female lead, close and breathy, light stacked harmonies in the chorus. Arrangement: fingerpicked guitar and soft piano; brushed drums and upright bass enter in the chorus.';
 
@@ -55,7 +56,7 @@ export function formFromTrack(t: Track): FormState {
 interface Props {
   health: Health | null;
   form: FormState;
-  onFormChange: (f: FormState) => void;
+  onFormChange: Dispatch<SetStateAction<FormState>>;
   onSubmit: (input: GenerateInput) => Promise<void>;
 }
 
@@ -63,6 +64,10 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
+  /** prompt before the last enhance; offered as undo while the enhanced text is untouched */
+  const [undo, setUndo] = useState<{ before: string; after: string } | null>(null);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => onFormChange({ ...form, [k]: v });
 
 
@@ -70,6 +75,8 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
   const loading = online && !health!.ready;
   const canSubmit = online && !loading && form.prompt.trim().length > 0 && !submitting;
   const canStream = !!health?.capabilities?.includes('stream');
+  const canEnhance = !!health?.enhance && form.prompt.trim().length > 0 && !enhancing;
+  const enhanceTitle = health?.demo ? 'Not available in the demo' : !health?.enhance ? 'Set an LLM in Settings to enhance prompts' : 'Enhance prompt with MiniMax’s caption rewriter';
   const estMin = useMemo(() => Math.round((form.duration * 3 * form.takes) / 60 * 10) / 10, [form.duration, form.takes]);
 
   const submit = async () => {
@@ -92,6 +99,21 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const enhance = async () => {
+    setEnhanceError(null);
+    setEnhancing(true);
+    try {
+      const before = form.prompt;
+      const { prompt } = await api.enhance({ prompt: before.trim(), lyrics: form.lyrics.trim(), instrumental: form.instrumental });
+      setUndo({ before, after: prompt });
+      onFormChange((f) => ({ ...f, prompt }));
+    } catch (err) {
+      setEnhanceError((err as Error).message);
+    } finally {
+      setEnhancing(false);
     }
   };
 
@@ -154,13 +176,33 @@ export function CreatePanel({ health, form, onFormChange, onSubmit }: Props) {
             })}
           />
         </div>
-        <textarea
-          rows={form.mode === 'simple' ? 6 : 5}
-          value={form.prompt}
-          onChange={(e) => set('prompt', e.target.value)}
-          className="field resize-y leading-relaxed"
-          placeholder={TEMPLATE_PROMPT}
-        />
+        <div className="relative">
+          <textarea
+            rows={form.mode === 'simple' ? 6 : 5}
+            value={form.prompt}
+            readOnly={enhancing}
+            onChange={(e) => set('prompt', e.target.value)}
+            className={`field resize-y leading-relaxed pr-10 ${enhancing ? 'opacity-60' : ''}`}
+            placeholder={TEMPLATE_PROMPT}
+          />
+          <button
+            type="button"
+            aria-label="Enhance prompt"
+            title={enhanceTitle}
+            disabled={!canEnhance}
+            onClick={() => void enhance()}
+            className="absolute top-2 right-2 p-1.5 rounded-md text-zinc-400 hover:text-accent hover:bg-ink-700 transition disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+          >
+            {enhancing ? <Spinner width={16} height={16} /> : <Wand width={16} height={16} />}
+          </button>
+        </div>
+        {enhanceError && <div className="text-xs text-red-400 mt-1">Enhance failed: {enhanceError}</div>}
+        {enhancing && <div className="text-[11px] text-zinc-500 mt-1">Rewriting with MiniMax’s caption rewriter… this can take a minute.</div>}
+        {undo && !enhancing && form.prompt === undo.after && (
+          <button type="button" className="text-[11px] text-zinc-400 hover:text-white mt-1" onClick={() => { onFormChange((f) => ({ ...f, prompt: undo.before })); setUndo(null); }}>
+            Undo enhance
+          </button>
+        )}
       </div>
 
       {!form.instrumental && (

@@ -7,13 +7,17 @@ import { JsonStore, Library } from '../src/library.js';
 import type { Template, Track } from '../src/types.js';
 import { RenderQueue, UpstreamClient } from '../src/upstream.js';
 import { createApp } from '../src/app.js';
-import { SettingsStore } from '../src/settings.js';
+import { SettingsStore, type EnvOverrides } from '../src/settings.js';
 import { startFakeUpstream, type FakeUpstream } from './fakeUpstream.js';
+import { SkillFiles } from '../src/enhance.js';
+import { startFakeLlm, type FakeLlm } from './fakeLlm.js';
 
 let fake: FakeUpstream | null = null;
 afterEach(async () => { await fake?.close(); fake = null; });
+let llm: FakeLlm | null = null;
+afterEach(async () => { await llm?.close(); llm = null; });
 
-async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey: string | null = null, env: { musicApi: string | null; apiKey: string | null } | null = null) {
+async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey: string | null = null, env: EnvOverrides | null = null) {
   fake = await startFakeUpstream(opts);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'app-'));
   const lib = new Library(path.join(dir, 'library.json'));
@@ -25,9 +29,16 @@ async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey:
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
   await templates.load();
   const queue = new RenderQueue(lib, upstream, tracksDir, () => {}, 20);
-  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, log: () => {} });
+  // unreachable base: tests never hit GitHub; they seed the cache instead
+  const skill = new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1');
+  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill, log: () => {} });
   return { app, lib, tracksDir, dir, upstream, queue };
 }
+
+const seedSkill = async (dir: string) => {
+  await fs.mkdir(path.join(dir, 'skill-cache'), { recursive: true });
+  await fs.writeFile(path.join(dir, 'skill-cache', 'SKILL.md'), '# skill');
+};
 
 const until = async (cond: () => boolean, ms = 4000) => {
   const t0 = Date.now();
@@ -213,7 +224,7 @@ describe('app', () => {
     const put = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/`, apiKey: 'sekrit' });
     expect(put.body).toMatchObject({ musicApi: fake!.url, apiKeySet: true, source: { musicApi: 'settings', apiKey: 'settings' } });
     expect(upstream.url).toBe(fake!.url);
-    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toEqual({ musicApi: fake!.url, apiKey: 'sekrit', compat: false });
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toEqual({ musicApi: fake!.url, apiKey: 'sekrit', compat: false, llmApi: null, llmApiKey: null, llmModel: null });
     await request(app).get('/api/health');
     expect(fake!.requests.at(-1)?.auth).toBe('Bearer sekrit');
     expect((await request(app).put('/api/settings').send({ apiKey: '' })).body.apiKeySet).toBe(false);
@@ -226,6 +237,69 @@ describe('app', () => {
     const bad = await request(app).post('/api/settings/test').send({ musicApi: 'http://127.0.0.1:1' });
     expect(bad.body.ok).toBe(false);
     expect((await request(app).get('/api/settings')).body.musicApi).toBe('http://127.0.0.1:7862');
+  });
+
+  it('settings: LLM fields persist, gate health.enhance, and never return the key', async () => {
+    const { app, dir } = await setup();
+    expect((await request(app).get('/api/health')).body.enhance).toBe(false);
+    expect((await request(app).put('/api/settings').send({ llmApi: 'ftp://x' })).status).toBe(400);
+    const put = await request(app).put('/api/settings').send({ llmApi: 'http://llm.test/v1/', llmApiKey: 'llm-sekrit', llmModel: 'gpt-x' });
+    expect(put.body).toMatchObject({
+      llmApi: 'http://llm.test/v1', llmModel: 'gpt-x', llmKeySet: true,
+      source: { llmApi: 'settings', llmApiKey: 'settings', llmModel: 'settings' },
+      locked: { llmApi: false, llmApiKey: false, llmModel: false },
+    });
+    expect(JSON.stringify(put.body)).not.toContain('llm-sekrit');
+    expect((await request(app).get('/api/health')).body.enhance).toBe(true);
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toMatchObject({ llmApi: 'http://llm.test/v1', llmApiKey: 'llm-sekrit', llmModel: 'gpt-x' });
+    expect((await request(app).put('/api/settings').send({ llmModel: '' })).body.llmModel).toBeNull();
+    expect((await request(app).get('/api/health')).body.enhance).toBe(false);
+    await fake!.close(); fake = null;
+    await request(app).put('/api/settings').send({ llmModel: 'gpt-x' });
+    expect((await request(app).get('/api/health')).body).toMatchObject({ upstreamReachable: false, enhance: true });
+  });
+
+  it('enhance: 400 without a prompt, 409 until an LLM is configured, then returns the caption', async () => {
+    const { app, dir } = await setup();
+    expect((await request(app).post('/api/enhance').send({ prompt: ' ' })).status).toBe(400);
+    const off = await request(app).post('/api/enhance').send({ prompt: 'sad piano' });
+    expect(off.status).toBe(409);
+    expect(off.body.error).toMatch(/not configured/);
+    await seedSkill(dir);
+    llm = await startFakeLlm([{ content: '### Global Metadata\nslow piano' }]);
+    await request(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
+    const on = await request(app).post('/api/enhance').send({ prompt: 'sad piano', lyrics: '[Verse]\nx', instrumental: false });
+    expect(on.status).toBe(200);
+    expect(on.body).toEqual({ prompt: '### Global Metadata\nslow piano' });
+    expect(llm.requests[0].body.messages[1].content).toBe('Caption: sad piano\n\nLyrics:\n[Verse]\nx');
+    expect(fake!.requests.some((r) => r.path.includes('speech'))).toBe(false);
+  });
+
+  it('enhance: LLM failure maps to 502 with the reason', async () => {
+    const { app, dir } = await setup();
+    await seedSkill(dir);
+    llm = await startFakeLlm([{ status: 500 }]);
+    await request(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
+    const res = await request(app).post('/api/enhance').send({ prompt: 'sad piano' });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/LLM error 500/);
+  });
+
+  it('settings: a rejected PUT changes nothing, even fields that validated', async () => {
+    const { app, dir } = await setup();
+    expect((await request(app).put('/api/settings').send({ llmApi: 'http://ok.test/v1', llmModel: 5 })).status).toBe(400);
+    expect((await request(app).get('/api/settings')).body.llmApi).toBeNull();
+    await request(app).put('/api/settings').send({ compat: true });
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toMatchObject({ compat: true, llmApi: null });
+  });
+
+  it('settings: env-locked LLM fields cannot be changed and the key is never returned', async () => {
+    const { app } = await setup({}, null, { musicApi: null, apiKey: null, llmApi: 'http://env-llm/v1', llmApiKey: 'envk', llmModel: 'm' });
+    const s = await request(app).get('/api/settings');
+    expect(s.body).toMatchObject({ llmApi: 'http://env-llm/v1', llmModel: 'm', llmKeySet: true, locked: { llmApi: true, llmApiKey: true, llmModel: true }, source: { llmApi: 'env', llmApiKey: 'env', llmModel: 'env' } });
+    expect(JSON.stringify(s.body)).not.toContain('envk');
+    expect((await request(app).put('/api/settings').send({ llmModel: 'other' })).status).toBe(400);
+    expect((await request(app).put('/api/settings').send({ llmApiKey: 'x' })).status).toBe(400);
   });
 
   it('streams when advertised: real stage/progress/renderedSeconds, file appears early, valid WAV at the end', async () => {

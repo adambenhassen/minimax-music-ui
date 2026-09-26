@@ -17,13 +17,15 @@ export const api = {
   library: () => fetch('/api/library').then((r) => json<Track[]>(r)),
   generate: (input: GenerateInput) =>
     fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then((r) => json<Track[]>(r)),
+  enhance: (input: { prompt: string; lyrics: string; instrumental: boolean }) =>
+    fetch('/api/enhance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then((r) => json<{ prompt: string }>(r)),
   deleteTrack: (id: string) => fetch(`/api/tracks/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: true }>(r)),
   templates: () => fetch('/api/templates').then((r) => json<Template[]>(r)),
   saveTemplate: (t: Omit<Template, 'id' | 'createdAt'>) =>
     fetch('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) }).then((r) => json<Template>(r)),
   deleteTemplate: (id: string) => fetch(`/api/templates/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: true }>(r)),
   settings: () => fetch('/api/settings').then((r) => json<Settings>(r)),
-  saveSettings: (patch: { musicApi?: string; apiKey?: string; compat?: boolean }) =>
+  saveSettings: (patch: { musicApi?: string; apiKey?: string; compat?: boolean; llmApi?: string; llmApiKey?: string; llmModel?: string }) =>
     fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }).then((r) => json<Settings>(r)),
   testSettings: (candidate: { musicApi?: string; apiKey?: string }) =>
     fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(candidate) }).then((r) => json<SettingsTestResult>(r)),

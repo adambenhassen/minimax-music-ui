@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeGenerate, ValidationError } from '../src/validate.js';
+import { normalizeEnhance, normalizeGenerate, ValidationError } from '../src/validate.js';
 
 describe('normalizeGenerate', () => {
   it('rejects empty prompt', () => {
@@ -30,5 +30,14 @@ describe('normalizeGenerate', () => {
     expect(() => normalizeGenerate({ prompt: 'x', format: 'mp3' })).toThrow(/format/);
     expect(normalizeGenerate({ prompt: 'x', format: 'wav' }).format).toBe('wav');
     expect(normalizeGenerate({ prompt: 'x' }).format).toBe('wav');
+  });
+});
+
+describe('normalizeEnhance', () => {
+  it('requires a prompt, trims, defaults lyrics and instrumental', () => {
+    expect(() => normalizeEnhance({ prompt: '  ' })).toThrow(/prompt is required/);
+    expect(() => normalizeEnhance(null)).toThrow(/object/);
+    expect(normalizeEnhance({ prompt: ' a ', lyrics: ' [Verse] ', instrumental: true })).toEqual({ prompt: 'a', lyrics: '[Verse]', instrumental: true });
+    expect(normalizeEnhance({ prompt: 'a', instrumental: 'yes' })).toEqual({ prompt: 'a', lyrics: '', instrumental: false });
   });
 });

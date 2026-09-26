@@ -5,7 +5,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { JsonStore, Library } from './library.js';
 import { extFor, RenderQueue, UpstreamClient, UpstreamError } from './upstream.js';
-import { normalizeGenerate, ValidationError } from './validate.js';
+import { normalizeEnhance, normalizeGenerate, ValidationError } from './validate.js';
+import { EnhanceError, enhancePrompt, type SkillFiles } from './enhance.js';
 import { normalizeMusicApi, SettingsStore } from './settings.js';
 import { randomTitle } from './names.js';
 import { FORMATS, type Template, type Track } from './types.js';
@@ -20,6 +21,8 @@ export interface AppDeps {
   queue: RenderQueue;
   tracksDir: string;
   staticDir?: string | null;
+  /** MiniMax's caption-rewriter skill files, for POST /api/enhance */
+  skill: SkillFiles;
   log?: (msg: string) => void;
   /** read-only public demo: showcase library, simulated per-visitor renders, no upstream, no writes */
   demo?: DemoOptions | null;
@@ -64,9 +67,9 @@ export function createApp(deps: AppDeps) {
   app.get('/api/health', async (_req, res) => {
     try {
       const h = await upstream.health();
-      res.json({ upstreamReachable: true, ready: h.ready, models: h.models, capabilities: h.capabilities, busy: queue.busy, queued: queue.queued, formats: FORMATS });
+      res.json({ upstreamReachable: true, ready: h.ready, models: h.models, capabilities: h.capabilities, busy: queue.busy, queued: queue.queued, formats: FORMATS, enhance: settings.llm() !== null });
     } catch (err) {
-      res.json({ upstreamReachable: false, ready: false, capabilities: [], busy: queue.busy, queued: queue.queued, formats: FORMATS, error: (err as Error).message });
+      res.json({ upstreamReachable: false, ready: false, capabilities: [], busy: queue.busy, queued: queue.queued, formats: FORMATS, enhance: settings.llm() !== null, error: (err as Error).message });
     }
   });
 
@@ -112,6 +115,17 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  app.post('/api/enhance', async (req, res, next) => {
+    try {
+      const input = normalizeEnhance(req.body);
+      const llm = settings.llm();
+      if (!llm) return res.status(409).json({ error: 'Prompt enhancement is not configured — set an LLM in Settings' });
+      res.json({ prompt: await enhancePrompt(input, llm, deps.skill) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.delete('/api/tracks/:id', async (req, res) => {
     const track = library.get(req.params.id);
     if (!track) return res.status(404).json({ error: 'not found' });
@@ -145,7 +159,7 @@ export function createApp(deps: AppDeps) {
   app.put('/api/settings', async (req, res, next) => {
     try {
       const b = (req.body ?? {}) as Record<string, unknown>;
-      await settings.update({ musicApi: b.musicApi, apiKey: b.apiKey, compat: b.compat });
+      await settings.update({ musicApi: b.musicApi, apiKey: b.apiKey, compat: b.compat, llmApi: b.llmApi, llmApiKey: b.llmApiKey, llmModel: b.llmModel });
       const e = settings.effective();
       upstream.configure(e.musicApi, e.apiKey, e.compat);
       log(`upstream reconfigured → ${e.musicApi}${e.apiKey ? ' (bearer set)' : ''}${e.compat ? ' (compat mode)' : ''}`);
@@ -217,6 +231,7 @@ export function createApp(deps: AppDeps) {
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     if (err instanceof UpstreamError) return res.status(502).json({ error: err.message });
+    if (err instanceof EnhanceError) return res.status(err.status).json({ error: err.message });
     if (err && typeof err === 'object' && 'type' in err && (err as { type: string }).type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'invalid JSON' });
     }

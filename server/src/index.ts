@@ -7,6 +7,7 @@ import type { Template } from './types.js';
 import { RenderQueue, UpstreamClient } from './upstream.js';
 import { SettingsStore } from './settings.js';
 import { createApp } from './app.js';
+import { SkillFiles } from './enhance.js';
 
 const config = loadConfig();
 const tracksDir = path.join(config.dataDir, 'tracks');
@@ -14,7 +15,10 @@ const library = new Library(path.join(config.dataDir, 'library.json'));
 await library.load();
 const templates = new JsonStore<Template>(path.join(config.dataDir, 'templates.json'));
 await templates.load();
-const settings = new SettingsStore(path.join(config.dataDir, 'settings.json'), { musicApi: config.musicApiEnv, apiKey: config.apiKeyEnv });
+const settings = new SettingsStore(path.join(config.dataDir, 'settings.json'), {
+  musicApi: config.musicApiEnv, apiKey: config.apiKeyEnv,
+  llmApi: config.llmApiEnv, llmApiKey: config.llmApiKeyEnv, llmModel: config.llmModelEnv,
+});
 await settings.load();
 const effective = settings.effective();
 
@@ -26,11 +30,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultStatic = path.resolve(here, '../../web/dist');
 const staticDir = config.staticDir ?? (fs.existsSync(defaultStatic) ? defaultStatic : null);
 
-const app = createApp({ library, templates, settings, upstream, queue, tracksDir, staticDir, demo: config.demo ? {} : null });
+const skill = new SkillFiles(path.join(config.dataDir, 'skill-cache'));
+const app = createApp({ library, templates, settings, upstream, queue, tracksDir, staticDir, skill, demo: config.demo ? {} : null });
 
 app.listen(config.port, () => {
   console.log(`minimax-music-ui server on http://localhost:${config.port}`);
   console.log(`  upstream: ${effective.musicApi} [${effective.source.musicApi}]${effective.apiKey ? ` (bearer set [${effective.source.apiKey}])` : ''}`);
+  const llm = settings.llm();
+  console.log(`  enhance:  ${llm ? `${llm.model} @ ${llm.url}` : '(no LLM configured)'}`);
   console.log(`  data:     ${config.dataDir}`);
   console.log(`  static:   ${staticDir ?? '(none — run web dev server)'}`);
   if (config.demo) console.log('  DEMO mode: read-only showcase, renders are simulated');

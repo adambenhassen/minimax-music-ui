@@ -31,6 +31,7 @@
 
 - **Create panel** — Simple or Custom mode, song title (random name like “Velvet Horizon” if left empty), style description, lyrics editor with `[Verse]` / `[Chorus]` / … tag chips, instrumental toggle, duration 5–360 s, 1–4 takes per submit (each take gets `seed + i`), advanced seed. Output is WAV, as the official route documents (FLAC/MP3 appear in the selector but disabled).
 - **Templates** — a built-in default plus your own saved templates (style, lyrics, duration), stored server-side.
+- **Prompt enhancement** — the magic wand at the top right of the prompt field rewrites your description into a structured MiniMax Music 3 caption (Global Metadata / Vocal Details / Arrangement) using MiniMax's own [`music-caption-rewriter`](https://github.com/MiniMax-AI/MiniMax-Music3/tree/main/skills/music-caption-rewriter) skill. It runs on any OpenAI-compatible chat model with tool calling that you configure in Settings (or `LLM_API` / `LLM_MODEL`); the music server is not involved. Skill files are fetched from GitHub on first use and cached in `data/skill-cache/`. Undo restores your original text.
 - **Render queue** — the UI server renders one track at a time against the blocking `/v1/audio/speech` route and shows queued / rendering / done with elapsed time and an estimated bar (~3× realtime — the official API reports no progress). Cancel while queued or rendering, retry on error. Queued tracks survive a UI-server restart (they are re-queued in order); a render that was in flight is marked as interrupted.
 - **Live progress + play while rendering** — when the server is the bundled `inference/server.py` (it advertises `capabilities: ["stream"]` on `/health`), progress is real for every render (Generating → Rendering, ETA from the measured rate). Tick *Play while rendering* under Advanced and the audio is streamed as it's rendered too: press play on a track that is still rendering, the waveform grows as windows arrive, the player buffers when it catches up with the renderer and swaps to the final file seamlessly. Stock `sgl-omni` keeps the estimated bar.
 - **Library** — every finished render is saved into `data/tracks/` with its metadata (prompt, lyrics, seed, format). Cards show duration, seed and how long the render took. Search, download, delete, "reuse settings".
@@ -38,7 +39,7 @@
 - **Player** — sticky bottom bar with waveform (decoded client-side), seek, prev/next, keyboard space to play/pause.
 - **Health pill** — offline / loading model / idle (· live progress) / rendering · N queued (probes `GET /v1/models` and the optional `GET /health`).
 - **Settings page** — point the app at your inference server (URL + optional API key) from the UI, with a "Test connection" button. Environment variables, when set, take precedence and lock those fields. A *Compatibility mode* debug switch makes the UI treat any server as stock `sgl-omni` (no `/health`, no streaming) to check the plain contract still works.
-- Responsive down to phone width. No external services; everything runs on your machine or tailnet.
+- Responsive down to phone width. No external services required; everything runs on your machine or tailnet (prompt enhancement is optional and uses the LLM you configure, plus a one-time fetch of the skill from GitHub).
 
 ## Architecture
 
@@ -119,6 +120,9 @@ The inference server address is resolved in this order:
 |---|---|---|
 | `MUSIC_API` | – | Base URL of the inference server, path prefix allowed, e.g. `http://host:8000` (overrides Settings) |
 | `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` (overrides Settings) |
+| `LLM_API` | – | OpenAI-compatible base URL incl. `/v1` for prompt enhancement, e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1` (overrides Settings) |
+| `LLM_API_KEY` | – | Bearer key for `LLM_API`, if it needs one (overrides Settings) |
+| `LLM_MODEL` | – | Chat model with tool calling, e.g. `gpt-4.1-mini` (overrides Settings) |
 | `PORT` | `8787` | Port for the UI server |
 | `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
 | `STATIC_DIR` | `web/dist` (if built) | Directory of the built SPA to serve |
@@ -156,16 +160,17 @@ docker run --read-only -p 8787:8787 minimax-music-ui-demo
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | `demo` (read-only demo, see above), `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), `capabilities` from that `/health`, queue state |
+| `GET` | `/api/health` | `demo` (read-only demo, see above), `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), `capabilities` from that `/health`, `enhance` (an LLM is configured), queue state |
 | `GET` | `/api/library` | Tracks, newest first |
 | `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, format, takes}` → created tracks (queued) |
+| `POST` | `/api/enhance` | `{prompt, lyrics?, instrumental?}` → `{prompt}` rewritten by the caption-rewriter skill; 409 until an LLM is configured, 502/504 on LLM failure or timeout |
 | `GET` | `/api/tracks/:id/audio` | Stream audio (`?download` for an attachment); for a track still rendering, the audio so far with a valid header (Range supported) |
 | `DELETE` | `/api/tracks/:id` | Cancel (dequeue or abort the render), delete file and entry |
 | `GET` | `/api/templates` | Saved templates |
 | `POST` | `/api/templates` | `{name, prompt, lyrics?, duration?, format?}` — same name overwrites |
 | `DELETE` | `/api/templates/:id` | Remove a template |
-| `GET` | `/api/settings` | Effective inference URL, whether a key is set, `compat` flag, and which fields are env-locked (the key itself is never returned) |
-| `PUT` | `/api/settings` | `{musicApi?, apiKey?, compat?}` — `apiKey: ""` clears it; env-locked fields are rejected; `compat: true` skips `/health` and never streams |
+| `GET` | `/api/settings` | Effective inference URL, whether a key is set, `compat` flag, LLM URL/model and whether its key is set, and which fields are env-locked (keys are never returned) |
+| `PUT` | `/api/settings` | `{musicApi?, apiKey?, compat?, llmApi?, llmApiKey?, llmModel?}` — `""` clears a key or LLM field; env-locked fields are rejected; `compat: true` skips `/health` and never streams |
 | `POST` | `/api/settings/test` | Probe a candidate `{musicApi?, apiKey?}` against `/v1/models` without saving |
 
 ## Upstream API

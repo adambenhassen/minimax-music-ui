@@ -20,6 +20,6 @@ describe('SettingsStore', () => {
 
     expect(error).toHaveBeenCalled();
     expect(writeFile).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(await fs.readFile(file, 'utf8'))).toEqual({ musicApi: 'http://127.0.0.1:7862', apiKey: null, compat: true });
+    expect(JSON.parse(await fs.readFile(file, 'utf8'))).toEqual({ musicApi: 'http://127.0.0.1:7862', apiKey: null, compat: true, llmApi: null, llmApiKey: null, llmModel: null });
   });
 });

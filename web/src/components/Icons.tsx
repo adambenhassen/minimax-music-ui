@@ -13,6 +13,7 @@ export const Trash = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="
 export const Refresh = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" /></svg>;
 export const Reuse = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M4 12V8a2 2 0 0 1 2-2h12M4 12l3-3M4 12l3 3M20 12v4a2 2 0 0 1-2 2H6m14-6l-3-3m3 3l-3 3" /></svg>;
 export const Sparkle = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" /></svg>;
+export const Wand = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h.01M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" /></svg>;
 export const Music = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M9 18V6l10-2v12M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm10-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" /></svg>;
 export const Library = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l4-1v16l-4 1z" /></svg>;
 export const X = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M6 6l12 12M18 6L6 18" /></svg>;

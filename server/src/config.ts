@@ -8,6 +8,10 @@ export interface Config {
   port: number;
   dataDir: string;
   staticDir: string | null;
+  /** LLM_API / LLM_API_KEY / LLM_MODEL from env (prompt enhancement), or null when not set */
+  llmApiEnv: string | null;
+  llmApiKeyEnv: string | null;
+  llmModelEnv: string | null;
   /** DEMO=1: read-only public demo (see demo.ts) */
   demo: boolean;
 }
@@ -18,6 +22,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     musicApiEnv: env.MUSIC_API?.trim() ? env.MUSIC_API.trim().replace(/\/+$/, '') : null,
     apiKeyEnv: env.MUSIC_API_KEY?.trim() || null,
+    llmApiEnv: env.LLM_API?.trim() ? env.LLM_API.trim().replace(/\/+$/, '') : null,
+    llmApiKeyEnv: env.LLM_API_KEY?.trim() || null,
+    llmModelEnv: env.LLM_MODEL?.trim() || null,
     port,
     dataDir: path.resolve(env.DATA_DIR ?? './data'),
     staticDir: env.STATIC_DIR ? path.resolve(env.STATIC_DIR) : null,

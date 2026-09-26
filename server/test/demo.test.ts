@@ -8,6 +8,7 @@ import type { Template, Track } from '../src/types.js';
 import { RenderQueue, UpstreamClient } from '../src/upstream.js';
 import { createApp } from '../src/app.js';
 import { SettingsStore } from '../src/settings.js';
+import { SkillFiles } from '../src/enhance.js';
 
 const seedTrack = (id: string, file: string): Track => ({
   id, groupId: id, takeIndex: 0, title: `Seed ${id}`, prompt: 'seed', lyrics: '[Instrumental]', duration: 10, seed: 1, format: 'wav',
@@ -29,7 +30,7 @@ async function setup() {
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
   await templates.load();
   const queue = new RenderQueue(lib, upstream, tracksDir, () => {}, 20);
-  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, log: () => {}, demo: { renderMs: 120, tickMs: 20 } });
+  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo: { renderMs: 120, tickMs: 20 } });
   return { app, lib };
 }
 
@@ -45,7 +46,7 @@ describe('demo mode', () => {
   it('reports demo health without touching any upstream', async () => {
     const { app } = await setup();
     const h = await request(app).get('/api/health');
-    expect(h.body).toMatchObject({ demo: true, upstreamReachable: true, ready: true, capabilities: [] });
+    expect(h.body).toMatchObject({ demo: true, upstreamReachable: true, ready: true, capabilities: [], enhance: false });
   });
 
   it('refuses writes to seed tracks, settings and templates', async () => {
@@ -53,6 +54,7 @@ describe('demo mode', () => {
     expect((await request(app).delete('/api/tracks/s1')).status).toBe(403);
     expect(lib.get('s1')).toBeDefined();
     expect((await request(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(403);
+    expect((await request(app).post('/api/enhance').send({ prompt: 'x' })).status).toBe(403);
     expect((await request(app).post('/api/settings/test').send({})).status).toBe(403);
     expect((await request(app).post('/api/templates').send({ name: 'n', prompt: 'p' })).status).toBe(403);
     expect((await request(app).delete('/api/templates/x')).status).toBe(403);
