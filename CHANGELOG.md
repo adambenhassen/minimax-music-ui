@@ -1,9 +1,17 @@
 # Changelog
 
-## Unreleased
+## v0.1.1 — 2026-09-26
 
-- Fix renders longer than 5 minutes failing with "upstream unreachable: fetch failed": the HTTP client's 300 s header/body timeouts are off for `/v1/audio/speech` (optional `UPSTREAM_TIMEOUT_MS`), and a timeout is reported as "upstream timed out after Ns".
-- Prompt enhancement: magic-wand button on the prompt field runs MiniMax's `music-caption-rewriter` skill on an OpenAI-compatible LLM (Settings or `LLM_API` / `LLM_API_KEY` / `LLM_MODEL`); undo restores the original text. Disabled in the demo.
+### Create
+- Prompt enhancement: a magic-wand button on the prompt field rewrites the description into a structured Music 3 caption (Global Metadata / Vocal Details / Arrangement) with MiniMax's `music-caption-rewriter` skill, run on an OpenAI-compatible LLM with tool calling (Settings, or `LLM_API` / `LLM_API_KEY` / `LLM_MODEL`). Skill files are fetched on first use and cached in `data/skill-cache/`; undo restores the original text. Disabled in the demo.
+
+### Fixes
+- Renders longer than 5 minutes no longer fail with "upstream unreachable: fetch failed": the HTTP client's 300 s header/body timeouts are off for `/v1/audio/speech` (optional `UPSTREAM_TIMEOUT_MS`), and a timeout is reported as "upstream timed out after Ns".
+- JSON stores recover from a failed write instead of blocking later writes, and render-progress updates no longer write snapshots to disk.
+- Settings updates are all-or-nothing: a rejected field no longer leaves earlier fields half-applied.
+
+### Maintenance
+- Dependencies updated (vitest 5); fixes the moderate `qs` advisory.
 
 ## v0.1.0 — 2026-08-19
 
