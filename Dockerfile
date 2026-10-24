@@ -20,6 +20,7 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     STATIC_DIR=/app/web/dist
 WORKDIR /app
+COPY ci-missing-path /tmp/missing
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/package.json ./server/
