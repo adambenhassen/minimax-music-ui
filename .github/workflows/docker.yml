@@ -1,0 +1,93 @@
+name: docker
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+    steps:
+      - id: filter
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+            const checkedPaths = new Set([
+              "Dockerfile",
+              "Dockerfile.demo",
+              ".dockerignore",
+              ".github/workflows/docker.yml",
+            ]);
+            const matchesPath = (filename) =>
+              checkedPaths.has(filename) || /(^|\/)package(?:-lock)?\.json$/.test(filename);
+            const image = files.length === 3000 || files.some(({ filename, previous_filename }) =>
+              matchesPath(filename) || (previous_filename && matchesPath(previous_filename))
+            );
+            core.setOutput("image", String(image));
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build main image (linux/amd64)
+        run: docker buildx build --platform linux/amd64 --load --tag minimax-music-ui:pr .
+
+      - name: Smoke-test main image
+        run: |
+          set -euo pipefail
+          container_id="$(docker run --detach minimax-music-ui:pr)"
+          cleanup() {
+            docker rm --force "$container_id" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          deadline=$((SECONDS + 30))
+          while (( SECONDS < deadline )); do
+            status="$(
+              docker exec "$container_id" node -e '
+                fetch("http://127.0.0.1:8787/api/library", { signal: AbortSignal.timeout(1000) })
+                  .then((response) => {
+                    console.log(response.status);
+                    process.exit(response.status === 200 ? 0 : 1);
+                  })
+                  .catch(() => process.exit(1));
+              ' 2>/dev/null || true
+            )"
+            if [[ "$status" == "200" ]]; then
+              exit 0
+            fi
+
+            running="$(docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+            if [[ "$running" != "true" ]]; then
+              docker logs "$container_id"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs "$container_id"
+          echo "GET /api/library did not return HTTP 200 within 30 seconds" >&2
+          exit 1
+
+      - name: Prepare synthetic demo data
+        run: |
+          mkdir -p demo/data
+          printf '{"tracks":[]}\n' > demo/data/.ci-smoke.json
+
+      - name: Build demo image (linux/amd64)
+        run: docker buildx build --platform linux/amd64 --load --build-arg BASE=minimax-music-ui:pr --tag minimax-music-ui-demo:pr --file Dockerfile.demo .
