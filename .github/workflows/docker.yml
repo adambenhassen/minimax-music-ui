@@ -90,4 +90,11 @@ jobs:
           printf '{"tracks":[]}\n' > demo/data/.ci-smoke.json
 
       - name: Build demo image (linux/amd64)
-        run: docker buildx build --platform linux/amd64 --load --build-arg BASE=minimax-music-ui:pr --tag minimax-music-ui-demo:pr --file Dockerfile.demo .
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            --build-context minimax-music-ui:pr=docker-image://minimax-music-ui:pr \
+            --build-arg BASE=minimax-music-ui:pr \
+            --tag minimax-music-ui-demo:pr \
+            --file Dockerfile.demo .
