@@ -8,6 +8,8 @@ python server.py --host 127.0.0.1 --port 7862
 # then point the UI at http://127.0.0.1:7862
 ```
 
+The inference package versions are pinned in `requirements.txt`; change a version there when updating the runtime dependencies.
+
 ### Model download
 
 The weights (`MiniMaxAI/MiniMax-Music3`, tens of GB) are **not** in this repo. On first start the script pulls them from the Hugging Face Hub into the HF cache (`~/.cache/huggingface/hub`, or `$HF_HOME`) — expect the first launch to take a while and `/health` to return 503 until it's done. To fetch ahead of time, or on a machine with a slow link:

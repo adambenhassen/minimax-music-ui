@@ -1,5 +1,8 @@
-diffusers @ git+https://github.com/huggingface/diffusers
-torch
-soundfile
-fastapi
-uvicorn
+# diffusers v0.41.0, commit 086bf9578c0f4acbc66e48cd1e7cc26befd9e10f, provides
+# ModularPipeline and MiniMax Music 3's denoise/decoder hook targets.
+diffusers==0.41.0
+# Keep pip's normal platform wheel selection; do not force a +cpu or +cu variant.
+torch==2.14.1
+soundfile==0.14.0
+fastapi==0.162.0
+uvicorn==0.53.0
