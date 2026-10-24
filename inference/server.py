@@ -45,8 +45,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-CI_LINT_PROBE = undefined_name_for_ci
-
 REPO = "MiniMaxAI/MiniMax-Music3"
 FRAME_RATE = 25          # acoustic frames per second — the unit max_new_tokens counts in
 MAX_FRAMES = 9_000       # the model's hard cap: 360 s
