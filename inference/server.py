@@ -25,7 +25,7 @@ which fits on one card (~24 GB), so a client written against either works agains
 
 Requests are rendered one at a time; generation is ~3x slower than realtime on an RTX 3090.
 
-    pip install "diffusers @ git+https://github.com/huggingface/diffusers" torch soundfile fastapi uvicorn
+    pip install -r requirements.txt
     python server.py --host 127.0.0.1 --port 7862
 """
 import argparse
