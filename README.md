@@ -119,7 +119,7 @@ The inference server address is resolved in this order:
 
 | Variable | Default | Description |
 |---|---|---|
-| `UI_TOKEN` | – | Optional shared token that protects every `/api/*` route; use a random value of at least 32 characters. The UI does not show a token prompt yet; a follow-up will add one. Scripts should send `Authorization: Bearer $UI_TOKEN`; browser clients can exchange the token at `POST /api/auth` for an HttpOnly session cookie. |
+| `UI_TOKEN` | – | Optional shared token that protects every `/api/*` route; use a random value of at least 32 characters. The UI prompts for it after its first unauthorized API request and exchanges it at `POST /api/auth` for an HttpOnly session cookie. Scripts should send `Authorization: Bearer $UI_TOKEN`. |
 | `MUSIC_API` | – | Base URL of the inference server, path prefix allowed, e.g. `http://host:8000` (overrides Settings) |
 | `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` (overrides Settings) |
 | `LLM_API` | – | OpenAI-compatible base URL incl. `/v1` for prompt enhancement, e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1` (overrides Settings) |
@@ -163,7 +163,7 @@ docker run --read-only -p 8787:8787 minimax-music-ui-demo
 
 ## UI server API
 
-When `UI_TOKEN` is set, all API routes require a bearer token or the session cookie from `POST /api/auth`, except `POST /api/auth` itself and `GET /api/ping`. The auth endpoint accepts `{"token":"..."}` and sets an `HttpOnly; SameSite=Strict; Path=/api` cookie (plus `Secure` over HTTPS). The UI has no token prompt yet, so a browser needs that cookie; scripts can use the bearer header directly.
+When `UI_TOKEN` is set, all API routes require a bearer token or the session cookie from `POST /api/auth`, except `POST /api/auth` itself and `GET /api/ping`. The auth endpoint accepts `{"token":"..."}` and sets an `HttpOnly; SameSite=Strict; Path=/api` cookie (plus `Secure` over HTTPS). The UI prompts when an API request is unauthorized, then reuses the cookie; scripts can use the bearer header directly.
 
 | Method | Path | Description |
 |---|---|---|
