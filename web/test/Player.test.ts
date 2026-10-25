@@ -18,6 +18,7 @@ let mediaStates: WeakMap<HTMLMediaElement, MediaState>;
 let play: ReturnType<typeof vi.fn>;
 let load: ReturnType<typeof vi.fn>;
 let mediaDescriptors: Map<string, PropertyDescriptor | undefined>;
+let audioContextDescriptor: PropertyDescriptor | undefined;
 let unregisterAuthHandler: (() => void) | undefined;
 
 function mediaState(element: HTMLMediaElement): MediaState {
@@ -92,6 +93,7 @@ async function flush() {
 
 beforeEach(() => {
   const prototype = HTMLMediaElement.prototype;
+  audioContextDescriptor = Object.getOwnPropertyDescriptor(window, 'AudioContext');
   const properties = ['currentTime', 'duration', 'ended', 'load', 'pause', 'play'];
   mediaDescriptors = new Map(properties.map((property) => [property, Object.getOwnPropertyDescriptor(prototype, property)]));
   mediaStates = new WeakMap();
@@ -135,6 +137,8 @@ afterEach(() => {
     if (descriptor) Object.defineProperty(HTMLMediaElement.prototype, property, descriptor);
     else Reflect.deleteProperty(HTMLMediaElement.prototype, property);
   }
+  if (audioContextDescriptor) Object.defineProperty(window, 'AudioContext', audioContextDescriptor);
+  else Reflect.deleteProperty(window, 'AudioContext');
 });
 
 describe('Player live playback', () => {
@@ -178,6 +182,46 @@ describe('Player live playback', () => {
 
     expect(audio.getAttribute('src')).toBe('/api/tracks/ahead/audio?r=20');
     expect(load.mock.calls.length).toBe(loadsBeforeExpansion);
+  });
+
+  it('refreshes the live waveform every few seconds and once more when rendering finishes', async () => {
+    class FakeAudioContext {
+      async decodeAudioData() {
+        return {
+          numberOfChannels: 1,
+          getChannelData: () => new Float32Array(160).fill(0.5),
+        } as unknown as AudioBuffer;
+      }
+
+      close() { return Promise.resolve(); }
+    }
+    Object.defineProperty(window, 'AudioContext', { configurable: true, value: FakeAudioContext });
+    const audioFetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new ArrayBuffer(64),
+    } as Response));
+    vi.stubGlobal('fetch', audioFetch);
+
+    const { render } = await mount(track('waveform-cadence', 'running', 1), false);
+    await flush();
+    for (let renderedSeconds = 2; renderedSeconds <= 30; renderedSeconds++) {
+      await render(track('waveform-cadence', 'running', renderedSeconds));
+      await flush();
+    }
+
+    const partialRequests = audioFetch.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => url.startsWith('/api/tracks/waveform-cadence/audio?r='));
+    expect(partialRequests.length).toBeLessThanOrEqual(7);
+    expect(partialRequests).toHaveLength(6);
+
+    const requestsBeforeFinish = audioFetch.mock.calls.length;
+    await render(track('waveform-cadence', 'done', 30));
+    await flush();
+
+    expect(audioFetch.mock.calls.length).toBe(requestsBeforeFinish + 1);
+    expect(audioFetch.mock.calls.map(([input]) => String(input)).at(-1)).toBe('/api/tracks/waveform-cadence/audio');
   });
 
   it('swaps to the finished source and preserves the current playback position', async () => {
