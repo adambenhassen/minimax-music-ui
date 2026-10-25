@@ -30,6 +30,7 @@ Requests are rendered one at a time; generation is ~3x slower than realtime on a
 """
 import argparse
 import base64
+import hmac
 import io
 import json
 import queue
@@ -41,7 +42,6 @@ import soundfile as sf
 import torch
 from diffusers import ComponentsManager, ModularPipeline
 from fastapi import FastAPI, Header, HTTPException, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -226,7 +226,6 @@ def _worker():
 
 
 app = FastAPI(title="MiniMax Music 3", description="Text-to-music on one GPU, upstream's API.")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/health")
@@ -246,7 +245,7 @@ def list_models():
 def speech(req: SpeechRequest, authorization: str = Header(None), x_api_key: str = Header(None)):
     if ARGS.api_key:
         supplied = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
-        if supplied != ARGS.api_key:
+        if not hmac.compare_digest(supplied.encode("utf-8"), ARGS.api_key.encode("utf-8")):
             raise HTTPException(401, "bad or missing API key")
     if req.response_format != "wav":
         raise HTTPException(422, "response_format %r is not supported; only 'wav'" % req.response_format)
