@@ -533,15 +533,27 @@ class InferenceSpeechCancellationTests(TestCase):
         self.assertEqual(response.headers["x-seed"], "7")
         self.assertFalse(job["cancelled"])
 
-    def test_streaming_request_still_returns_an_event_stream(self):
+    def test_completed_stream_consumes_done_and_sentinel_without_cancelling(self):
         response = self._direct_speech(
             _DisconnectedRequest(), {**self._payload(), "stream": True}
         )
         job = server.QUEUE.get_nowait()
+        job["completed"] = True
+        job["events"].put(("done", {"seed": 7, "sampleRate": 44_100, "channels": 2}))
+        job["events"].put(None)
+
+        async def consume_stream():
+            return "".join([chunk async for chunk in response.body_iterator])
+
+        body = asyncio.run(consume_stream())
+        server.QUEUE.task_done()
 
         self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
         self.assertEqual(response.headers["x-seed"], "7")
-        self.assertIsNotNone(job["events"])
+        self.assertIn("event: done\n", body)
+        self.assertIn('data: {"seed": 7', body)
+        self.assertTrue(job["completed"])
+        self.assertFalse(job["cancelled"])
 
     def test_failed_non_streaming_job_still_returns_500_with_the_error(self):
         async def send():
