@@ -66,7 +66,7 @@ export function loadPeaks(url: string, buckets = BUCKETS): Promise<number[]> {
       return;
     }
     for (const [cachedKey, cachedEntry] of cache) {
-      if (cachedEntry.trackUrl === audioUrl && cachedEntry !== entry) cache.delete(cachedKey);
+      if (cachedEntry.trackUrl === audioUrl && cachedEntry.sequence < sequence) cache.delete(cachedKey);
     }
     latestByTrack.set(audioUrl, entry);
   }, () => {

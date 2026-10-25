@@ -22,6 +22,12 @@ function response(ok = true) {
   } as Response;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   audioContextDescriptor = Object.getOwnPropertyDescriptor(window, 'AudioContext');
   Object.defineProperty(window, 'AudioContext', { configurable: true, value: FakeAudioContext });
@@ -74,5 +80,27 @@ describe('waveform peak cache', () => {
     await loadPeaks(finished, 160);
 
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps a newer in-flight snapshot cached when an older request resolves first', async () => {
+    const oldPartial = '/api/tracks/peaks-order/audio?r=1';
+    const newerPartial = '/api/tracks/peaks-order/audio?r=6';
+    const oldResponse = deferred<Response>();
+    const newerResponse = deferred<Response>();
+    const fetch = vi.fn((input: RequestInfo | URL) => String(input) === oldPartial ? oldResponse.promise : newerResponse.promise);
+    vi.stubGlobal('fetch', fetch);
+
+    const oldRequest = loadPeaks(oldPartial, 3);
+    const newerRequest = loadPeaks(newerPartial, 6);
+    oldResponse.resolve(response());
+    await oldRequest;
+
+    const repeatedNewerRequest = loadPeaks(newerPartial, 6);
+    const fetchesAfterRefresh = fetch.mock.calls.length;
+    newerResponse.resolve(response());
+    await Promise.all([newerRequest, repeatedNewerRequest]);
+
+    expect(fetchesAfterRefresh).toBe(2);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
