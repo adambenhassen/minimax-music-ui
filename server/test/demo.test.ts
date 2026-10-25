@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -7,8 +7,9 @@ import { JsonStore, Library } from '../src/library.js';
 import type { Template, Track } from '../src/types.js';
 import { RenderQueue, UpstreamClient } from '../src/upstream.js';
 import { createApp } from '../src/app.js';
-import { SettingsStore } from '../src/settings.js';
+import { DEFAULT_MUSIC_API, SettingsStore, type EnvOverrides } from '../src/settings.js';
 import { SkillFiles } from '../src/enhance.js';
+import type { DemoOptions } from '../src/demo.js';
 
 const seedTrack = (id: string, file: string): Track => ({
   id, groupId: id, takeIndex: 0, title: `Seed ${id}`, prompt: 'seed', lyrics: '[Instrumental]', duration: 10, seed: 1, format: 'wav',
@@ -16,7 +17,7 @@ const seedTrack = (id: string, file: string): Track => ({
   createdAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:30.000Z',
 });
 
-async function setup() {
+async function setup(demo: DemoOptions = { renderMs: 120, tickMs: 20 }, env: EnvOverrides = { musicApi: null, apiKey: null }) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'demo-'));
   const tracksDir = path.join(dir, 'tracks');
   await fs.mkdir(tracksDir);
@@ -24,15 +25,17 @@ async function setup() {
   const lib = new Library(path.join(dir, 'library.json'));
   await lib.load();
   await lib.add(seedTrack('s1', 'a.wav'));
-  const settings = new SettingsStore(path.join(dir, 'settings.json'), { musicApi: null, apiKey: null });
+  const settings = new SettingsStore(path.join(dir, 'settings.json'), env);
   await settings.load();
   const upstream = new UpstreamClient('http://127.0.0.1:1');
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
   await templates.load();
   const queue = new RenderQueue(lib, upstream, tracksDir, () => {}, 20);
-  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo: { renderMs: 120, tickMs: 20 } });
+  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo });
   return { app, lib };
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 const until = async (cond: () => Promise<boolean>, ms = 4000) => {
   const t0 = Date.now();
@@ -47,6 +50,92 @@ describe('demo mode', () => {
     const { app } = await setup();
     const h = await request(app).get('/api/health');
     expect(h.body).toMatchObject({ demo: true, upstreamReachable: true, ready: true, capabilities: [], enhance: false });
+  });
+
+  it('serves read-only showcase requests without creating sessions or cookies', async () => {
+    const { app } = await setup();
+    const health = await request(app).get('/api/health');
+    const library = await request(app).get('/api/library');
+    const audio = await request(app).get('/api/tracks/s1/audio');
+
+    expect(health.status).toBe(200);
+    expect(library.body.map((t: Track) => t.id)).toEqual(['s1']);
+    expect(audio.status).toBe(200);
+    expect(audio.body.toString()).toBe('RIFFxxxxWAVEseed-a');
+    for (const response of [health, library, audio]) expect(response.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('does not adopt unknown client session ids when generating', async () => {
+    const { app } = await setup();
+    const attackerSid = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    const generated = await request(app).post('/api/generate').set('Cookie', `demo_sid=${attackerSid}`).send({ prompt: 'fresh session' });
+    const cookie = generated.headers['set-cookie']?.[0] as string | undefined;
+    const freshSid = /demo_sid=([^;]+)/.exec(cookie ?? '')?.[1];
+
+    expect(generated.status).toBe(201);
+    expect(freshSid).toBeTruthy();
+    expect(freshSid).not.toBe(attackerSid);
+    const unknownRead = await request(app).get('/api/library').set('Cookie', `demo_sid=${attackerSid}`);
+    expect(unknownRead.body.map((t: Track) => t.id)).toEqual(['s1']);
+    expect(unknownRead.headers['set-cookie']).toBeUndefined();
+    await request(app).delete(`/api/tracks/${generated.body[0].id}`).set('Cookie', `demo_sid=${freshSid}`);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  it('returns a canned settings view with all settings locked', async () => {
+    const { app } = await setup({ renderMs: 120, tickMs: 20 }, {
+      musicApi: 'https://private.example/music', apiKey: 'host-music-secret',
+      llmApi: 'https://private.example/llm', llmApiKey: 'host-llm-secret', llmModel: 'host-model',
+    });
+    const response = await request(app).get('/api/settings');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      musicApi: DEFAULT_MUSIC_API, apiKeySet: false, compat: false,
+      llmApi: null, llmModel: null, llmKeySet: false,
+      source: { musicApi: 'default', apiKey: 'none', llmApi: 'none', llmApiKey: 'none', llmModel: 'none' },
+      locked: { musicApi: true, apiKey: true, llmApi: true, llmApiKey: true, llmModel: true },
+    });
+    expect(Object.values(response.body.locked).every(Boolean)).toBe(true);
+    expect(JSON.stringify(response.body)).not.toContain('private.example');
+    expect(JSON.stringify(response.body)).not.toContain('host-music-secret');
+    expect(JSON.stringify(response.body)).not.toContain('host-llm-secret');
+    expect(JSON.stringify(response.body)).not.toContain('host-model');
+  });
+
+  it('blocks API routes outside the demo allowlist by default', async () => {
+    const { app } = await setup();
+    for (const response of [
+      await request(app).get('/api/templates'),
+      await request(app).get('/api/future-secret'),
+    ]) {
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({ error: 'This is a read-only demo — changes are not saved.' });
+    }
+  });
+
+  it('evicts the least recently used session and stops its active timer', async () => {
+    const { app } = await setup({ renderMs: 5000, tickMs: 10, maxSessions: 2 });
+    const clearInterval = vi.spyOn(globalThis, 'clearInterval');
+    const oldest = request.agent(app);
+    const lru = request.agent(app);
+    const replacement = request.agent(app);
+    const oldestTrack = (await oldest.post('/api/generate').send({ prompt: 'oldest' })).body[0] as Track;
+    const lruTrack = (await lru.post('/api/generate').send({ prompt: 'least recently used' })).body[0] as Track;
+    await until(async () => (await lru.get('/api/library')).body.find((t: Track) => t.id === lruTrack.id)?.status === 'running');
+    await oldest.get('/api/library');
+    expect(clearInterval).not.toHaveBeenCalled();
+
+    const replacementTrack = (await replacement.post('/api/generate').send({ prompt: 'replacement' })).body[0] as Track;
+    expect((await oldest.get('/api/library')).body.map((t: Track) => t.id)).toContain(oldestTrack.id);
+    const evicted = await lru.get('/api/library');
+    expect(evicted.body.map((t: Track) => t.id)).toEqual(['s1']);
+    expect(evicted.headers['set-cookie']).toBeUndefined();
+    expect(clearInterval).toHaveBeenCalled();
+
+    await oldest.delete(`/api/tracks/${oldestTrack.id}`);
+    await replacement.delete(`/api/tracks/${replacementTrack.id}`);
+    await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
   it('refuses writes to seed tracks, settings and templates', async () => {
