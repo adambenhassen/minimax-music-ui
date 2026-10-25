@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Track } from '../types';
-import { api } from '../api';
+import { api, apiFetch } from '../api';
 import { coverStyle } from '../lib/cover';
 import { fmtTime } from '../lib/format';
 import { Waveform } from './Waveform';
 import { Download, Next, Pause, Play, Prev, Spinner } from './Icons';
+import { DownloadButton } from './DownloadButton';
 
 interface Props {
   track: Track | null;
@@ -23,6 +24,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
   const [starved, setStarved] = useState(false);
   const starvedRef = useRef(false);
   const loadedSrc = useRef('');
+  const recoveredSrc = useRef('');
   const pendingSeek = useRef<number | null>(null);
 
   // a play() cut short by our own src swap rejects with AbortError — expected, not a playback problem
@@ -43,6 +45,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
       if (sameTrack) return;
       // armed: nothing to load yet — behave as starved so the first window resumes playback
       loadedSrc.current = `${api.audioUrl(track.id)}#pending`;
+      recoveredSrc.current = '';
       el.pause(); el.removeAttribute('src'); el.load();
       setTime(0); setDur(0); setErr(null);
       starvedRef.current = true; setStarved(true);
@@ -61,6 +64,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
     if (sameTrack && live && playing && !starved && !nearEnd) return;
     const pos = sameTrack ? el.currentTime : 0;
     loadedSrc.current = src;
+    recoveredSrc.current = '';
     if (!sameTrack) { setTime(0); setDur(0); }
     setErr(null);
     pendingSeek.current = pos > 0 ? pos : null;
@@ -103,6 +107,27 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
     onEnded();
   };
 
+  const recoverAudioSource = async () => {
+    const el = audio.current;
+    const failedSrc = src;
+    if (!el || !failedSrc) return;
+    if (recoveredSrc.current === failedSrc) { setErr('playback error'); return; }
+    recoveredSrc.current = failedSrc;
+    try {
+      // Native media requests cannot open the shared token prompt. A cheap HEAD request
+      // uses the same auth flow, then reloading the native source preserves audio streaming.
+      const response = await apiFetch(failedSrc, { method: 'HEAD' });
+      if (!response.ok) throw new Error(`audio ${response.status}`);
+      if (loadedSrc.current !== failedSrc || audio.current !== el) return;
+      el.src = failedSrc;
+      el.load();
+      setErr(null);
+      if (playing || starvedRef.current) el.play().catch(reportPlayError);
+    } catch {
+      if (loadedSrc.current === failedSrc) setErr('playback error');
+    }
+  };
+
   const subtitle = err ?? (starved && rendered === 0 ? 'Waiting for the first audio…' : starved ? 'Buffering — waiting for the renderer…' : live ? `Live · ${fmtTime(rendered)} rendered` : track ? track.prompt : 'Pick a track');
 
   return (
@@ -121,7 +146,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
           if (live && (el.ended || (el.duration > 0 && el.duration - el.currentTime < 0.05))) { starvedRef.current = true; setStarved(true); return; }
           if (!starvedRef.current) onPlayingChange(false);
         }}
-        onError={() => setErr('playback error')}
+        onError={() => { void recoverAudioSource(); }}
       />
       <div className="flex items-center gap-3 w-36 md:w-64 min-w-0">
         <div className="w-12 h-12 rounded-lg shrink-0" style={track ? coverStyle(track.id) : { background: '#22222f' }} />
@@ -150,7 +175,9 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
         </div>
         <span className="text-[11px] text-zinc-400 tabular-nums w-10">{fmtTime(total)}</span>
       </div>
-      <a className={`icon-btn hidden md:inline-flex ${track ? '' : 'pointer-events-none opacity-40'}`} href={track ? api.downloadUrl(track.id) : '#'} title="Download"><Download width={18} height={18} /></a>
+      <DownloadButton className="icon-btn hidden md:inline-flex" url={track ? api.downloadUrl(track.id) : null} title="Download">
+        <Download width={18} height={18} />
+      </DownloadButton>
     </div>
   );
 }
