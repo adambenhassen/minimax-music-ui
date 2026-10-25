@@ -16,6 +16,9 @@ export interface FakeUpstreamOptions {
   strictModel?: boolean;
   /** expose GET /health answering 503 (model loading) — like inference/server.py; default: no /health route (stock sgl-omni) */
   loading?: boolean;
+  /** delay probe responses, for exercising concurrent callers and client timeouts */
+  modelsResponseDelayMs?: number;
+  healthResponseDelayMs?: number;
   /** advertise capabilities:["stream"] on /health and answer stream:true with SSE progress + PCM windows */
   stream?: { windows: number; windowMs?: number; sampleRate?: number; secondsPerWindow?: number };
 }
@@ -37,6 +40,18 @@ export interface FakeUpstream {
   close(): Promise<void>;
 }
 
+function waitForProbeResponse(res: express.Response, delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      res.off('close', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    res.once('close', finish);
+  });
+}
+
 export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise<FakeUpstream> {
   const root = express();
   const app = express();
@@ -47,15 +62,19 @@ export async function startFakeUpstream(opts: FakeUpstreamOptions = {}): Promise
   const renderMs = opts.renderMs ?? 30;
 
   const modelId = opts.modelId === undefined ? 'minimax_ttm' : opts.modelId;
-  app.get('/v1/models', (req, res) => {
+  app.get('/v1/models', async (req, res) => {
     requests.push({ method: 'GET', path: req.path, auth: req.header('authorization') ?? undefined });
+    if (opts.modelsResponseDelayMs) await waitForProbeResponse(res, opts.modelsResponseDelayMs);
+    if (res.destroyed) return;
     if (modelId === null) return res.status(404).json({ detail: 'Not Found' });
     res.json({ object: 'list', data: [{ id: modelId, object: 'model' }] });
   });
 
-  if (opts.loading !== undefined || opts.stream) {
-    app.get('/health', (req, res) => {
+  if (opts.loading !== undefined || opts.stream || opts.healthResponseDelayMs !== undefined) {
+    app.get('/health', async (req, res) => {
       requests.push({ method: 'GET', path: req.path });
+      if (opts.healthResponseDelayMs) await waitForProbeResponse(res, opts.healthResponseDelayMs);
+      if (res.destroyed) return;
       if (opts.loading) return res.status(503).json({ detail: 'loading model' });
       res.json({ status: 'ready', ...(opts.stream ? { capabilities: ['stream'] } : {}) });
     });

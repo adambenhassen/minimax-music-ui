@@ -43,7 +43,7 @@ async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey:
   const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill, log });
   if (previousUiToken === undefined) delete process.env.UI_TOKEN;
   else process.env.UI_TOKEN = previousUiToken;
-  return { app, lib, tracksDir, dir, upstream, queue };
+  return { app, lib, tracksDir, dir, settings, upstream, queue };
 }
 
 const seedSkill = async (dir: string) => {
@@ -66,11 +66,51 @@ describe('app', () => {
     expect(res.body).toMatchObject({ upstreamReachable: true, ready: true, busy: false, queued: 0, formats: ['wav'], models: ['minimax_ttm'], capabilities: [] });
     expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models']);
     await fake!.close(); fake = null;
-    const down = await request(app).get('/api/health');
-    expect(down.body.upstreamReachable).toBe(false);
-    expect(down.body.error).toMatch(/unreachable/);
-    expect(down.body.formats).toEqual(['wav']);
+    const cached = await request(app).get('/api/health');
+    expect(cached.body).toMatchObject({ upstreamReachable: true, models: ['minimax_ttm'], formats: ['wav'] });
   });
+
+  it('coalesces concurrent health probes and reuses a completed result briefly', async () => {
+    const { app } = await setup({ stream: { windows: 1 }, modelsResponseDelayMs: 100, healthResponseDelayMs: 100 });
+    const responses = await Promise.all(Array.from({ length: 10 }, () => request(app).get('/api/health')));
+    expect(responses.every((res) => res.body.upstreamReachable && res.body.ready)).toBe(true);
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const followup = await request(app).get('/api/health');
+    expect(followup.body).toMatchObject({ upstreamReachable: true, capabilities: ['stream'] });
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
+  });
+
+  it('times out a stalled /v1/models probe and caches its failed result for concurrent pollers', async () => {
+    const { app } = await setup({ modelsResponseDelayMs: 8000 });
+    const startedAt = Date.now();
+    const responses = await Promise.all(Array.from({ length: 10 }, () => request(app).get('/api/health')));
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(4500);
+    expect(elapsedMs).toBeLessThan(7500);
+    expect(responses.every((res) => res.body.upstreamReachable === false && /probe timed out/i.test(res.body.error))).toBe(true);
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models']);
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const cached = await request(app).get('/api/health');
+    expect(cached.body).toMatchObject({ upstreamReachable: false, ready: false });
+    expect(cached.body.error).toMatch(/probe timed out/i);
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models']);
+  }, 15000);
+
+  it('treats a stalled optional /health probe as ready after its timeout', async () => {
+    const { app } = await setup({ healthResponseDelayMs: 8000 });
+    const startedAt = Date.now();
+    const result = await request(app).get('/api/health');
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(4500);
+    expect(elapsedMs).toBeLessThan(7500);
+    expect(result.body).toMatchObject({ upstreamReachable: true, ready: true, models: ['minimax_ttm'] });
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
+  }, 15000);
 
   it('generate → queue → speech → file: maps fields, serialises takes, forwards bearer', async () => {
     const { app, lib } = await setup({ renderMs: 120 }, 'sekrit');
@@ -110,12 +150,13 @@ describe('app', () => {
   });
 
   it('reports ready:false while an optional /health answers 503, true once it recovers', async () => {
-    const { app } = await setup({ loading: true });
+    const { app, upstream } = await setup({ loading: true });
     const loading = await request(app).get('/api/health');
     expect(loading.body).toMatchObject({ upstreamReachable: true, ready: false, models: ['minimax_ttm'] });
     expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
     await fake!.close();
     fake = await startFakeUpstream({ loading: false, port: Number(new URL(fake!.url).port) });
+    upstream.configure(fake!.url);
     const ready = await request(app).get('/api/health');
     expect(ready.body).toMatchObject({ upstreamReachable: true, ready: true });
   });
@@ -241,6 +282,44 @@ describe('app', () => {
     expect((await writeRequest(app).put('/api/settings').send({ apiKey: '' })).body.apiKeySet).toBe(false);
   });
 
+  it('settings changes to URL, key, or compat invalidate the cached upstream probe', async () => {
+    const { app } = await setup({ stream: { windows: 1 } }, null, { musicApi: null, apiKey: null });
+    expect((await request(app).get('/api/health')).body.capabilities).toEqual(['stream']);
+    expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
+
+    const next = await startFakeUpstream({ stream: { windows: 1 } });
+    try {
+      const switched = await writeRequest(app).put('/api/settings').send({ musicApi: next.url, apiKey: 'fresh-key' });
+      expect(switched.status).toBe(200);
+      const newTarget = await request(app).get('/api/health');
+      expect(newTarget.body).toMatchObject({ upstreamReachable: true, capabilities: ['stream'] });
+      expect(next.requests.map((r) => r.path)).toEqual(['/v1/models', '/health']);
+      expect(next.requests[0]?.auth).toBe('Bearer fresh-key');
+
+      const changedCompat = await writeRequest(app).put('/api/settings').send({ compat: true });
+      expect(changedCompat.status).toBe(200);
+      const compatible = await request(app).get('/api/health');
+      expect(compatible.body).toMatchObject({ upstreamReachable: true, ready: true, capabilities: [] });
+      expect(next.requests.map((r) => r.path)).toEqual(['/v1/models', '/health', '/v1/models']);
+      expect(next.requests.at(-1)?.auth).toBe('Bearer fresh-key');
+    } finally {
+      await next.close();
+    }
+  });
+
+  it('keeps queue and enhancement fields live while reusing cached upstream health', async () => {
+    const { app, lib, queue, settings } = await setup({ renderMs: 150 });
+    await request(app).get('/api/health');
+    const generated = await writeRequest(app).post('/api/generate').send({ prompt: 'x', takes: 2 });
+    await until(() => queue.busy && queue.queued === 1);
+    await settings.update({ llmApi: 'http://127.0.0.1:9999/v1', llmModel: 'test-model' });
+
+    const live = await request(app).get('/api/health');
+    expect(live.body).toMatchObject({ busy: true, queued: 1, formats: ['wav'], enhance: true });
+    expect(fake!.requests.filter((r) => r.path === '/v1/models')).toHaveLength(1);
+    await until(() => lib.get(generated.body[0].id)?.status === 'done' && lib.get(generated.body[1].id)?.status === 'done');
+  });
+
   it('settings/test probes a candidate URL without saving', async () => {
     const { app } = await setup({}, null, { musicApi: null, apiKey: null });
     const ok = await writeRequest(app).post('/api/settings/test').send({ musicApi: fake!.url });
@@ -249,6 +328,31 @@ describe('app', () => {
     expect(bad.body.ok).toBe(false);
     expect((await request(app).get('/api/settings')).body.musicApi).toBe('http://127.0.0.1:7862');
   });
+
+  it('settings/test probes a stalled candidate live with the health timeout, outside the shared cache', async () => {
+    const { app } = await setup({}, null, { musicApi: null, apiKey: null });
+    await request(app).get('/api/health');
+    const candidate = await startFakeUpstream({ modelsResponseDelayMs: 8000 });
+    try {
+      const startedAt = Date.now();
+      const probe = writeRequest(app).post('/api/settings/test').send({ musicApi: candidate.url }).then((result) => result);
+      await until(() => candidate.requests.length === 1);
+      const configured = await request(app).get('/api/health');
+      expect(configured.body.upstreamReachable).toBe(true);
+      expect(fake!.requests.map((r) => r.path)).toEqual(['/v1/models']);
+
+      const result = await probe;
+      const elapsedMs = Date.now() - startedAt;
+
+      expect(elapsedMs).toBeGreaterThanOrEqual(4500);
+      expect(elapsedMs).toBeLessThan(7500);
+      expect(result.body.ok).toBe(false);
+      expect(result.body.error).toMatch(/probe timed out/i);
+      expect(candidate.requests.map((r) => r.path)).toEqual(['/v1/models']);
+    } finally {
+      await candidate.close();
+    }
+  }, 15000);
 
   it('settings/test only reuses a saved music key for the same origin', async () => {
     const { app } = await setup({}, null, { musicApi: null, apiKey: null });

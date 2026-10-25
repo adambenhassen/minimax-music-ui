@@ -15,6 +15,8 @@ const FRAMES_PER_SECOND = 25;
 const MAX_FRAMES = 9000;
 
 const EXT: Record<string, string> = { wav: 'wav' };
+const HEALTH_PROBE_TIMEOUT_MS = 5_000;
+const HEALTH_CACHE_TTL_MS = 3_000;
 /** Model id in the official model card's example; used when /v1/models doesn't tell us otherwise. */
 export const DEFAULT_MODEL = 'MiniMaxAI/MiniMax-Music3';
 export const extFor = (format: string) => EXT[format] ?? format;
@@ -22,6 +24,21 @@ export const extFor = (format: string) => EXT[format] ?? format;
 export class UpstreamError extends Error {
   constructor(message: string, readonly status: number | null = null) {
     super(message);
+  }
+}
+
+async function withProbeTimeout<T>(path: string, probe: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), HEALTH_PROBE_TIMEOUT_MS);
+  try {
+    return await probe(controller.signal);
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new UpstreamError(`upstream probe timed out after ${HEALTH_PROBE_TIMEOUT_MS / 1000}s waiting for ${path}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -41,6 +58,10 @@ export interface UpstreamHealth {
   capabilities: string[];
 }
 
+type HealthCacheEntry =
+  | { expiresAt: number; result: UpstreamHealth }
+  | { expiresAt: number; error: UpstreamError };
+
 export type StreamEvent =
   | { type: 'progress'; stage: 'semantic' | 'denoise'; done: number; total: number }
   | { type: 'audio'; secondsRendered: number };
@@ -54,6 +75,9 @@ export class UpstreamClient {
   private modelId: string | null = null;
   private capabilities: string[] = [];
   private probed = false;
+  private healthGeneration = 0;
+  private healthPromise: Promise<UpstreamHealth> | null = null;
+  private healthCache: HealthCacheEntry | null = null;
 
   /**
    * `compat`: pretend the server is stock sgl-omni — skip GET /health, so no loading state and no extras.
@@ -69,6 +93,9 @@ export class UpstreamClient {
   }
 
   configure(baseUrl: string, apiKey: string | null, compat = false): void {
+    this.healthGeneration++;
+    this.healthPromise = null;
+    this.healthCache = null;
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
     this.compat = compat;
@@ -96,9 +123,9 @@ export class UpstreamClient {
     return this.baseUrl;
   }
 
-  private headers(extra: Record<string, string> = {}): Record<string, string> {
+  private headers(extra: Record<string, string> = {}, apiKey: string | null = this.apiKey): Record<string, string> {
     const h: Record<string, string> = { ...extra };
-    if (this.apiKey) h.Authorization = `Bearer ${this.apiKey}`;
+    if (apiKey) h.Authorization = `Bearer ${apiKey}`;
     return h;
   }
 
@@ -109,34 +136,84 @@ export class UpstreamClient {
    * `ready` comes from an optional GET /health: a 503 means the model is still loading; anything
    * else (404 on stock sgl-omni, timeouts) counts as ready. Its JSON may list `capabilities`.
    */
-  async health(): Promise<UpstreamHealth> {
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}/v1/models`, { headers: this.headers() });
-    } catch (err) {
+  health(): Promise<UpstreamHealth> {
+    const now = Date.now();
+    if (this.healthCache && this.healthCache.expiresAt > now) {
+      if ('error' in this.healthCache) return Promise.reject(this.healthCache.error);
+      return Promise.resolve(this.copyHealth(this.healthCache.result));
+    }
+    if (this.healthPromise) return this.healthPromise.then((health) => this.copyHealth(health));
+
+    const generation = this.healthGeneration;
+    const baseUrl = this.baseUrl;
+    const apiKey = this.apiKey;
+    const compat = this.compat;
+    const probe = this.probeHealthNow(baseUrl, apiKey, compat, generation).catch((err: unknown) => {
+      if (err instanceof UpstreamError) throw err;
       throw new UpstreamError(`upstream unreachable: ${(err as Error).message}`);
-    }
-    if (res.status === 401 || res.status === 403) throw new UpstreamError(`upstream ${res.status} on /v1/models — check the API key`, res.status);
-    let models: string[] = [];
-    if (res.ok) {
-      const json = (await res.json().catch(() => ({}))) as { data?: { id?: string }[] };
-      models = (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
+    });
+    this.healthPromise = probe;
+    void probe.then((result) => {
+      if (generation !== this.healthGeneration || this.healthPromise !== probe) return;
+      this.healthCache = { expiresAt: Date.now() + HEALTH_CACHE_TTL_MS, result: this.copyHealth(result) };
+      this.healthPromise = null;
+    }, (err: UpstreamError) => {
+      if (generation !== this.healthGeneration || this.healthPromise !== probe) return;
+      this.healthCache = { expiresAt: Date.now() + HEALTH_CACHE_TTL_MS, error: err };
+      this.healthPromise = null;
+    });
+    return probe.then((health) => this.copyHealth(health));
+  }
+
+  private copyHealth(health: UpstreamHealth): UpstreamHealth {
+    return { ready: health.ready, models: [...health.models], capabilities: [...health.capabilities] };
+  }
+
+  private async probeHealthNow(baseUrl: string, apiKey: string | null, compat: boolean, generation: number): Promise<UpstreamHealth> {
+    const models = await withProbeTimeout('/v1/models', async (signal) => {
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/v1/models`, { headers: this.headers({}, apiKey), signal });
+      } catch (err) {
+        if (signal.aborted) throw err;
+        throw new UpstreamError(`upstream unreachable: ${(err as Error).message}`);
+      }
+      if (res.status === 401 || res.status === 403) throw new UpstreamError(`upstream ${res.status} on /v1/models — check the API key`, res.status);
+      if (!res.ok) return [];
+      let json: { data?: { id?: string }[] };
+      try {
+        json = await res.json() as { data?: { id?: string }[] };
+      } catch (err) {
+        if (signal.aborted) throw err;
+        json = {};
+      }
+      return (json.data ?? []).map((m) => m.id ?? '').filter(Boolean);
+    });
+    const h = compat ? { ready: true, capabilities: [] } : await this.probeHealth(baseUrl, apiKey);
+    if (generation === this.healthGeneration) {
       if (models.length) this.modelId = models[0];
+      this.capabilities = h.capabilities;
+      this.probed = true;
     }
-    const h = this.compat ? { ready: true, capabilities: [] } : await this.probeHealth();
-    this.capabilities = h.capabilities;
-    this.probed = true;
     return { ready: h.ready, models, capabilities: h.capabilities };
   }
 
   /** GET /health is optional: 503 = model still loading; its JSON may list `capabilities`. */
-  private async probeHealth(): Promise<{ ready: boolean; capabilities: string[] }> {
+  private async probeHealth(baseUrl: string, apiKey: string | null): Promise<{ ready: boolean; capabilities: string[] }> {
     try {
-      const res = await fetch(`${this.baseUrl}/health`, { headers: this.headers() });
-      if (res.status === 503) return { ready: false, capabilities: [] };
-      const json = (await res.json().catch(() => ({}))) as { capabilities?: unknown };
-      const caps = Array.isArray(json.capabilities) ? json.capabilities.filter((c): c is string => typeof c === 'string') : [];
-      return { ready: true, capabilities: caps };
+      return await withProbeTimeout('/health', async (signal) => {
+        const res = await fetch(`${baseUrl}/health`, { headers: this.headers({}, apiKey), signal });
+        if (res.status === 503) return { ready: false, capabilities: [] };
+        let json: { capabilities?: unknown };
+        try {
+          json = await res.json() as { capabilities?: unknown };
+        } catch (err) {
+          if (signal.aborted) throw err;
+          json = {};
+        }
+        const caps = Array.isArray(json.capabilities) ? json.capabilities.filter((c): c is string => typeof c === 'string') : [];
+        return { ready: true, capabilities: caps };
+      });
     } catch {
       return { ready: true, capabilities: [] };
     }
