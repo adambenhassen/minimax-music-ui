@@ -8,7 +8,7 @@ import { extFor, RenderQueue, UpstreamClient, UpstreamError } from './upstream.j
 import { normalizeEnhance, normalizeGenerate, normalizeLyrics, ValidationError } from './validate.js';
 import { writeLyrics } from './lyrics.js';
 import { EnhanceError, enhancePrompt, type SkillFiles } from './enhance.js';
-import { normalizeMusicApi, SettingsStore } from './settings.js';
+import { normalizeMusicApi, sameOrigin, SettingsStore } from './settings.js';
 import { randomTitle } from './names.js';
 import { FORMATS, type Template, type Track } from './types.js';
 import { patchWavSizes, WAV_HEADER_BYTES } from './wav.js';
@@ -188,7 +188,13 @@ export function createApp(deps: AppDeps) {
     let url = e.musicApi;
     let key = e.apiKey;
     try {
-      if (typeof b.musicApi === 'string' && !locked.musicApi) url = normalizeMusicApi(b.musicApi);
+      if (typeof b.musicApi === 'string' && !locked.musicApi) {
+        url = normalizeMusicApi(b.musicApi);
+        if (!sameOrigin(e.musicApi, url)) {
+          if (locked.apiKey) throw new ValidationError('MUSIC_API_KEY is set in the environment and cannot be used with a different musicApi origin');
+          key = null;
+        }
+      }
       if (typeof b.apiKey === 'string' && !locked.apiKey) key = b.apiKey.trim() || null;
     } catch (err) {
       return res.status(400).json({ ok: false, error: (err as Error).message });
