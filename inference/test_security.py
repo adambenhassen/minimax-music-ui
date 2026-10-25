@@ -255,6 +255,86 @@ class InferenceSpeechCancellationTests(TestCase):
             server.health()
         self.assertEqual(raised.exception.status_code, 503)
 
+    def test_pipeline_failure_after_disconnect_is_logged_and_emitted_as_error(self):
+        job = {
+            "id": "disconnect-race",
+            "duration": 1,
+            "seed": 1,
+            "instructions": "ambient",
+            "lyrics": "[Verse]",
+            "events": queue.Queue(),
+            "pcm": [],
+            "stream_audio": True,
+            "seconds": 0.0,
+            "frames": 0,
+            "max_frames": 25,
+            "cancelled": False,
+            "completed": False,
+            "wav": None,
+            "error": None,
+            "lock": threading.Lock(),
+            "event": threading.Event(),
+        }
+        stop_worker = object()
+
+        class StopWorker(Exception):
+            pass
+
+        class OneJobQueue(queue.Queue):
+            def get(self, *args, **kwargs):
+                queued_job = super().get(*args, **kwargs)
+                if queued_job is stop_worker:
+                    raise StopWorker()
+                return queued_job
+
+        class FakePipe:
+            sampling_rate = 44_100
+
+            def load_components(self, **kwargs):
+                pass
+
+            def to(self, device):
+                pass
+
+            def __call__(self, prompt, **kwargs):
+                with job["lock"]:
+                    job["cancelled"] = True
+                raise RuntimeError("CUDA out of memory")
+
+        class FakeGenerator:
+            def __init__(self, device):
+                pass
+
+            def manual_seed(self, seed):
+                return self
+
+        worker_queue = OneJobQueue()
+        worker_queue.put(job)
+        worker_queue.put(stop_worker)
+        server.QUEUE = worker_queue
+        logs = io.StringIO()
+
+        with (
+            patch.object(server.ModularPipeline, "from_pretrained", return_value=FakePipe(), create=True),
+            patch.object(server, "_install_progress_hooks"),
+            patch.object(server.torch, "bfloat16", object(), create=True),
+            patch.object(server.torch, "Generator", FakeGenerator, create=True),
+            contextlib.redirect_stdout(logs),
+            self.assertRaises(StopWorker),
+        ):
+            server._worker()
+
+        self.assertTrue(job["cancelled"])
+        self.assertEqual(job["error"], "RuntimeError: CUDA out of memory")
+        self.assertTrue(job["completed"])
+        self.assertTrue(job["event"].is_set())
+        self.assertEqual(
+            job["events"].get_nowait(),
+            ("error", {"message": "RuntimeError: CUDA out of memory"}),
+        )
+        self.assertIsNone(job["events"].get_nowait())
+        self.assertIn("failed: CUDA out of memory", logs.getvalue())
+
     def test_active_disconnect_aborts_through_worker_hook_and_starts_next_job(self):
         active_started = threading.Event()
         disconnect_seen = threading.Event()

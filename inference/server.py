@@ -230,14 +230,10 @@ def _worker():
             print("[%s] cancelled by client" % job["id"], flush=True)
         except BaseException as exc:
             with job["lock"]:
-                cancelled = job["cancelled"]
-                job["error"] = "cancelled" if cancelled else "%s: %s" % (type(exc).__name__, exc)
+                job["error"] = "%s: %s" % (type(exc).__name__, exc)
                 job["completed"] = True
-            if cancelled:
-                print("[%s] cancelled by client" % job["id"], flush=True)
-            else:
-                _emit(job, "error", {"message": job["error"]})
-                print("[%s] failed: %s" % (job["id"], exc), flush=True)
+            _emit(job, "error", {"message": job["error"]})
+            print("[%s] failed: %s" % (job["id"], exc), flush=True)
         finally:
             CURRENT["job"] = None
             if job["events"] is not None:
