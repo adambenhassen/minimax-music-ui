@@ -207,7 +207,11 @@ class InferenceSpeechCancellationTests(TestCase):
             def task_done(self):
                 pass
 
-        pipe = SimpleNamespace(load_components=lambda **kwargs: None, to=lambda device: None)
+        pipe = SimpleNamespace(
+            sampling_rate=44_100,
+            load_components=lambda **kwargs: None,
+            to=lambda device: None,
+        )
         server.QUEUE = OneJobQueue()
         with (
             patch.object(server.ModularPipeline, "from_pretrained", return_value=pipe, create=True),
