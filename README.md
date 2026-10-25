@@ -134,7 +134,7 @@ The inference server address is resolved in this order:
 ```bash
 npm run dev          # server on :8787 (tsx watch) + Vite on :5173 with /api proxied
 npm run dev:fake     # same, plus a fake inference API on :7999 — no GPU needed
-npm test             # server tests (vitest) against the fake upstream
+npm test             # server tests against the fake upstream and web tests
 npm run typecheck    # both packages
 ```
 

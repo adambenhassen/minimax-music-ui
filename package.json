@@ -11,7 +11,7 @@
     "dev:fake": "concurrently -k -n fake,server,web -c yellow,blue,magenta \"npm run fake -w server\" \"MUSIC_API=http://127.0.0.1:7999 npm run dev -w server\" \"npm run dev -w web\"",
     "build": "npm run build -w server && npm run build -w web",
     "start": "npm run start -w server",
-    "test": "npm test -w server",
+    "test": "npm test -w server && npm test -w web",
     "lint": "eslint \"server/**/*.{ts,tsx}\" \"web/**/*.{ts,tsx}\" && node scripts/check-lint-fixtures.mjs",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
   },
