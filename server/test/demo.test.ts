@@ -114,6 +114,29 @@ describe('demo mode', () => {
     expect(retainedLibrary.body.map((t: Track) => t.id)).toContain(track.id);
   });
 
+  it('bounds aggregate generated text per visitor', async () => {
+    const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1, maxTracksPerSession: 20 });
+    const visitor = request.agent(app);
+    const responses = [];
+    for (let i = 0; i < 20; i++) {
+      const prefix = String(i);
+      responses.push(await visitor.post('/api/generate').send({
+        prompt: `${prefix}${'p'.repeat(2_000 - prefix.length)}`,
+        lyrics: `${prefix}${'l'.repeat(10_000 - prefix.length)}`,
+      }));
+    }
+    const library = await visitor.get('/api/library');
+    const generated = library.body.filter((t: Track) => t.id !== 's1') as Track[];
+    for (const track of generated) await visitor.delete(`/api/tracks/${track.id}`);
+    const replacement = await visitor.post('/api/generate').send({ prompt: 'replacement'.padEnd(2_000, 'p'), lyrics: 'replacement'.padEnd(10_000, 'l') });
+    if (replacement.status === 201) await visitor.delete(`/api/tracks/${replacement.body[0].id}`);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(responses.map((response) => response.status)).toEqual([201, ...Array(19).fill(429)]);
+    expect(generated.map((track) => track.id)).toEqual([responses[0].body[0].id]);
+    expect(replacement.status).toBe(201);
+  });
+
   it('returns a canned settings view with all settings locked', async () => {
     const { app } = await setup({ renderMs: 120, tickMs: 20 }, {
       musicApi: 'https://private.example/music', apiKey: 'host-music-secret',

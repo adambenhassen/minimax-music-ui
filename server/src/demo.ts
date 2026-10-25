@@ -27,6 +27,7 @@ const COOKIE = 'demo_sid';
 const READ_ONLY = { error: 'This is a read-only demo — changes are not saved.' };
 const MAX_PROMPT_LENGTH = 2_000;
 const MAX_LYRICS_LENGTH = 10_000;
+const MAX_SESSION_TEXT_LENGTH = 12_000;
 const MIME: Record<string, string> = { wav: 'audio/wav' };
 const safeName = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'track';
 const DEMO_SETTINGS = {
@@ -43,6 +44,7 @@ const DEMO_SETTINGS = {
 interface Session {
   sid: string;
   tracks: Track[];
+  textLength: number;
   lastSeen: number;
   running: boolean;
   timer: NodeJS.Timeout | null;
@@ -82,7 +84,7 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
     }
     let sid = randomUUID();
     while (sessions.has(sid)) sid = randomUUID();
-    const session: Session = { sid, tracks: [], lastSeen: Date.now(), running: false, timer: null };
+    const session: Session = { sid, tracks: [], textLength: 0, lastSeen: Date.now(), running: false, timer: null };
     sessions.set(sid, session);
     res.cookie(COOKIE, sid, { httpOnly: true, sameSite: 'lax', maxAge: sessionTtl });
     return session;
@@ -146,8 +148,13 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
       }
       const g = normalizeGenerate(req.body);
       const existing = sessionOf(req);
+      const textLength = (g.prompt.length + g.lyrics.length) * g.takes;
+      if ((existing?.textLength ?? 0) + textLength > MAX_SESSION_TEXT_LENGTH) {
+        return res.status(429).json({ error: `Demo limit: at most ${MAX_SESSION_TEXT_LENGTH} characters of prompt and lyrics per visitor — delete some first.` });
+      }
       if ((existing?.tracks.length ?? 0) + g.takes > maxTracks) return res.status(429).json({ error: `Demo limit: at most ${maxTracks} simulated tracks per visitor — delete some first.` });
       const s = existing ?? createSession(res);
+      s.textLength += textLength;
       const groupId = randomUUID();
       const title = g.title || randomTitle();
       const created: Track[] = [];
@@ -170,7 +177,11 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
   r.delete('/api/tracks/:id', (req, res) => {
     const s = sessionOf(req);
     const i = s?.tracks.findIndex((t) => t.id === req.params.id) ?? -1;
-    if (s && i !== -1) { s.tracks.splice(i, 1); return res.json({ ok: true }); }
+    if (s && i !== -1) {
+      const [track] = s.tracks.splice(i, 1);
+      if (track) s.textLength -= track.prompt.length + track.lyrics.length;
+      return res.json({ ok: true });
+    }
     if (library.get(req.params.id)) return res.status(403).json(READ_ONLY);
     res.status(404).json({ error: 'not found' });
   });
