@@ -15,6 +15,7 @@ interface MediaState {
 const mountedRoots: Root[] = [];
 let mediaStates: WeakMap<HTMLMediaElement, MediaState>;
 let play: ReturnType<typeof vi.fn>;
+let load: ReturnType<typeof vi.fn>;
 let mediaDescriptors: Map<string, PropertyDescriptor | undefined>;
 
 function mediaState(element: HTMLMediaElement): MediaState {
@@ -102,13 +103,14 @@ beforeEach(() => {
   play = vi.fn(() => Promise.resolve());
   Object.defineProperty(prototype, 'play', { configurable: true, value: play });
   Object.defineProperty(prototype, 'pause', { configurable: true, value: vi.fn() });
+  load = vi.fn(function (this: HTMLMediaElement) {
+    const state = mediaState(this);
+    state.currentTime = 0;
+    state.ended = false;
+  });
   Object.defineProperty(prototype, 'load', {
     configurable: true,
-    value: vi.fn(function (this: HTMLMediaElement) {
-      const state = mediaState(this);
-      state.currentTime = 0;
-      state.ended = false;
-    }),
+    value: load,
   });
 
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
@@ -157,6 +159,17 @@ describe('Player live playback', () => {
     expect(play.mock.calls.length).toBeGreaterThan(playCallsBeforeExpansion);
   });
 
+  it('keeps the current live source when more audio arrives with playback ahead of the end', async () => {
+    const { audio, render } = await mount(track('ahead', 'running', 20), true);
+    setMediaState(audio, { duration: 20, currentTime: 5 });
+    const loadsBeforeExpansion = load.mock.calls.length;
+
+    await render(track('ahead', 'running', 40));
+
+    expect(audio.getAttribute('src')).toBe('/api/tracks/ahead/audio?r=20');
+    expect(load.mock.calls.length).toBe(loadsBeforeExpansion);
+  });
+
   it('swaps to the finished source and preserves the current playback position', async () => {
     const { audio, render } = await mount(track('finishing', 'running', 40), true);
     setMediaState(audio, { duration: 40 });
@@ -169,6 +182,20 @@ describe('Player live playback', () => {
     expect(audio.getAttribute('src')).toBe('/api/tracks/finishing/audio');
     expect(audio.currentTime).toBe(12);
     expect(play.mock.calls.length).toBeGreaterThan(playCallsBeforeFinish);
+  });
+
+  it('ends playback without reloading when rendering finishes after starvation at the end', async () => {
+    const { audio, props, render } = await mount(track('starved', 'running', 20), true);
+    setMediaState(audio, { duration: 20, currentTime: 20, ended: true });
+    const liveSource = audio.getAttribute('src');
+    const loadsAtLiveEnd = load.mock.calls.length;
+    await dispatchMediaEvent(audio, 'ended');
+
+    await render(track('starved', 'done', 20));
+
+    expect(props.onEnded).toHaveBeenCalledTimes(1);
+    expect(audio.getAttribute('src')).toBe(liveSource);
+    expect(load.mock.calls.length).toBe(loadsAtLiveEnd);
   });
 
   it('loads a different track from the start when the selection changes', async () => {
