@@ -256,4 +256,49 @@ describe('Player live playback', () => {
     expect(audio.getAttribute('src')).toBe('/api/tracks/protected/audio');
     expect(load.mock.calls.length).toBeGreaterThan(loadsBeforeFailure);
   });
+
+  it('prompts again when playback recovery is retried after authentication is canceled', async () => {
+    let authorized = false;
+    let completeAuthentication!: () => void;
+    const prompt = vi.fn()
+      .mockRejectedValueOnce(new Error('Authentication canceled'))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => {
+        completeAuthentication = () => { authorized = true; resolve(); };
+      }));
+    unregisterAuthHandler = setAuthPromptHandler(prompt);
+
+    const requests: { method: string; authorized: boolean }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      requests.push({ method, authorized });
+      const ok = method !== 'HEAD' || authorized;
+      return { ok, status: ok ? 200 : 401, arrayBuffer: async () => new ArrayBuffer(8) } as Response;
+    }));
+
+    const { audio, host } = await mount(track('canceled', 'done', null), true);
+    await dispatchMediaEvent(audio, 'error');
+    await flush();
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('playback error');
+
+    await dispatchMediaEvent(audio, 'error');
+    await flush();
+
+    expect(prompt).toHaveBeenCalledTimes(2);
+    expect(requests.filter((request) => request.method === 'HEAD')).toEqual([
+      { method: 'HEAD', authorized: false },
+      { method: 'HEAD', authorized: false },
+    ]);
+
+    await act(async () => { completeAuthentication(); await Promise.resolve(); });
+    await flush();
+
+    expect(requests.filter((request) => request.method === 'HEAD')).toEqual([
+      { method: 'HEAD', authorized: false },
+      { method: 'HEAD', authorized: false },
+      { method: 'HEAD', authorized: true },
+    ]);
+    expect(host.textContent).not.toContain('playback error');
+  });
 });

@@ -124,6 +124,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
       setErr(null);
       if (playing || starvedRef.current) el.play().catch(reportPlayError);
     } catch {
+      if (recoveredSrc.current === failedSrc) recoveredSrc.current = '';
       if (loadedSrc.current === failedSrc) setErr('playback error');
     }
   };
