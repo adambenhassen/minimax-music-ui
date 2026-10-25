@@ -93,6 +93,27 @@ describe('demo mode', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
+  it.each([
+    { field: 'prompt', body: { prompt: 'x'.repeat(2001) } },
+    { field: 'lyrics', body: { prompt: 'valid prompt', lyrics: 'x'.repeat(10_001) } },
+  ])('rejects oversized $field without allocating a session or cookie', async ({ body }) => {
+    const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1 });
+    const visitor = request.agent(app);
+    const track = (await visitor.post('/api/generate').send({ prompt: 'existing session' })).body[0] as Track;
+    const oversized = await request(app).post('/api/generate').send(body);
+    const cookie = oversized.headers['set-cookie']?.[0] as string | undefined;
+
+    if (oversized.status === 201 && cookie) {
+      await request(app).delete(`/api/tracks/${oversized.body[0].id}`).set('Cookie', cookie);
+    }
+    const retainedLibrary = await visitor.get('/api/library');
+    await visitor.delete(`/api/tracks/${track.id}`);
+
+    expect(oversized.status).toBe(413);
+    expect(oversized.headers['set-cookie']).toBeUndefined();
+    expect(retainedLibrary.body.map((t: Track) => t.id)).toContain(track.id);
+  });
+
   it('returns a canned settings view with all settings locked', async () => {
     const { app } = await setup({ renderMs: 120, tickMs: 20 }, {
       musicApi: 'https://private.example/music', apiKey: 'host-music-secret',

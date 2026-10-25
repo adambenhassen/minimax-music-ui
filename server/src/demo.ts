@@ -25,6 +25,8 @@ export interface DemoOptions {
 
 const COOKIE = 'demo_sid';
 const READ_ONLY = { error: 'This is a read-only demo — changes are not saved.' };
+const MAX_PROMPT_LENGTH = 2_000;
+const MAX_LYRICS_LENGTH = 10_000;
 const MIME: Record<string, string> = { wav: 'audio/wav' };
 const safeName = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'track';
 const DEMO_SETTINGS = {
@@ -135,6 +137,13 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
 
   r.post('/api/generate', (req, res, next) => {
     try {
+      const body = req.body as Record<string, unknown> | null;
+      if (
+        (typeof body?.prompt === 'string' && body.prompt.length > MAX_PROMPT_LENGTH) ||
+        (typeof body?.lyrics === 'string' && body.lyrics.length > MAX_LYRICS_LENGTH)
+      ) {
+        return res.status(413).json({ error: `Demo limit: prompt is limited to ${MAX_PROMPT_LENGTH} characters and lyrics to ${MAX_LYRICS_LENGTH} characters.` });
+      }
       const g = normalizeGenerate(req.body);
       const existing = sessionOf(req);
       if ((existing?.tracks.length ?? 0) + g.takes > maxTracks) return res.status(429).json({ error: `Demo limit: at most ${maxTracks} simulated tracks per visitor — delete some first.` });
