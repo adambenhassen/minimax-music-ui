@@ -252,19 +252,19 @@ describe('app', () => {
 
   it('settings/test only reuses a saved music key for the same origin', async () => {
     const { app } = await setup({}, null, { musicApi: null, apiKey: null });
-    await request(app).put('/api/settings').send({ musicApi: fake!.url, apiKey: 'saved-key' });
+    await writeRequest(app).put('/api/settings').send({ musicApi: fake!.url, apiKey: 'saved-key' });
     const other = await startFakeUpstream();
     try {
-      const withoutKey = await request(app).post('/api/settings/test').send({ musicApi: other.url });
+      const withoutKey = await writeRequest(app).post('/api/settings/test').send({ musicApi: other.url });
       expect(withoutKey.status).toBe(200);
       expect(withoutKey.body.ok).toBe(true);
       expect(other.requests[0]?.auth).toBeUndefined();
 
-      const withKey = await request(app).post('/api/settings/test').send({ musicApi: other.url, apiKey: 'candidate-key' });
+      const withKey = await writeRequest(app).post('/api/settings/test').send({ musicApi: other.url, apiKey: 'candidate-key' });
       expect(withKey.status).toBe(200);
       expect(other.requests.at(-1)?.auth).toBe('Bearer candidate-key');
 
-      const sameOrigin = await request(app).post('/api/settings/test').send({ musicApi: `${fake!.url}/` });
+      const sameOrigin = await writeRequest(app).post('/api/settings/test').send({ musicApi: `${fake!.url}/` });
       expect(sameOrigin.body.ok).toBe(true);
       expect(fake!.requests.at(-1)?.auth).toBe('Bearer saved-key');
     } finally {
@@ -279,35 +279,35 @@ describe('app', () => {
     const newLlm = await startFakeLlm([{ content: 'ok' }]);
     await seedSkill(dir);
     try {
-      await request(app).put('/api/settings').send({ musicApi: fake!.url, apiKey: 'music-old', llmApi: oldLlm.url, llmApiKey: 'llm-old', llmModel: 'test-model' });
+      await writeRequest(app).put('/api/settings').send({ musicApi: fake!.url, apiKey: 'music-old', llmApi: oldLlm.url, llmApiKey: 'llm-old', llmModel: 'test-model' });
 
-      const sameOrigin = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/path`, llmApi: `${oldLlm.url}/path` });
+      const sameOrigin = await writeRequest(app).put('/api/settings').send({ musicApi: `${fake!.url}/path`, llmApi: `${oldLlm.url}/path` });
       expect(sameOrigin.body).toMatchObject({ apiKeySet: true, llmKeySet: true });
-      await request(app).put('/api/settings').send({ musicApi: fake!.url, llmApi: oldLlm.url });
+      await writeRequest(app).put('/api/settings').send({ musicApi: fake!.url, llmApi: oldLlm.url });
 
       await request(app).get('/api/health');
       expect(fake!.requests.at(-1)?.auth).toBe('Bearer music-old');
-      await request(app).post('/api/enhance').send({ prompt: 'test' });
+      await writeRequest(app).post('/api/enhance').send({ prompt: 'test' });
       expect(oldLlm.requests.at(-1)?.auth).toBe('Bearer llm-old');
 
-      const movedMusic = await request(app).put('/api/settings').send({ musicApi: otherMusic.url });
+      const movedMusic = await writeRequest(app).put('/api/settings').send({ musicApi: otherMusic.url });
       expect(movedMusic.body.apiKeySet).toBe(false);
       await request(app).get('/api/health');
       expect(otherMusic.requests.at(-1)?.auth).toBeUndefined();
 
-      const replacedMusic = await request(app).put('/api/settings').send({ musicApi: fake!.url, apiKey: 'music-new' });
+      const replacedMusic = await writeRequest(app).put('/api/settings').send({ musicApi: fake!.url, apiKey: 'music-new' });
       expect(replacedMusic.body.apiKeySet).toBe(true);
       await request(app).get('/api/health');
       expect(fake!.requests.at(-1)?.auth).toBe('Bearer music-new');
 
-      const movedLlm = await request(app).put('/api/settings').send({ llmApi: newLlm.url });
+      const movedLlm = await writeRequest(app).put('/api/settings').send({ llmApi: newLlm.url });
       expect(movedLlm.body.llmKeySet).toBe(false);
-      await request(app).post('/api/enhance').send({ prompt: 'test' });
+      await writeRequest(app).post('/api/enhance').send({ prompt: 'test' });
       expect(newLlm.requests.at(-1)?.auth).toBeUndefined();
 
-      const replacedLlm = await request(app).put('/api/settings').send({ llmApi: oldLlm.url, llmApiKey: 'llm-new' });
+      const replacedLlm = await writeRequest(app).put('/api/settings').send({ llmApi: oldLlm.url, llmApiKey: 'llm-new' });
       expect(replacedLlm.body.llmKeySet).toBe(true);
-      await request(app).post('/api/enhance').send({ prompt: 'test' });
+      await writeRequest(app).post('/api/enhance').send({ prompt: 'test' });
       expect(oldLlm.requests.at(-1)?.auth).toBe('Bearer llm-new');
     } finally {
       await otherMusic.close();
@@ -320,16 +320,16 @@ describe('app', () => {
     const { app, dir } = await setup({}, null, { musicApi: null, apiKey: 'env-music-key', llmApi: null, llmApiKey: 'env-llm-key', llmModel: null });
     const otherLlm = await startFakeLlm([{ content: 'ok' }]);
     try {
-      const test = await request(app).post('/api/settings/test').send({ musicApi: fake!.url });
+      const test = await writeRequest(app).post('/api/settings/test').send({ musicApi: fake!.url });
       expect(test.status).toBe(400);
       expect(test.body.error).toMatch(/MUSIC_API_KEY/);
       expect(fake!.requests).toHaveLength(0);
 
-      const music = await request(app).put('/api/settings').send({ musicApi: fake!.url });
+      const music = await writeRequest(app).put('/api/settings').send({ musicApi: fake!.url });
       expect(music.status).toBe(400);
       expect(music.body.error).toMatch(/MUSIC_API_KEY/);
 
-      const llm = await request(app).put('/api/settings').send({ llmApi: otherLlm.url });
+      const llm = await writeRequest(app).put('/api/settings').send({ llmApi: otherLlm.url });
       expect(llm.status).toBe(400);
       expect(llm.body.error).toMatch(/LLM_API_KEY/);
       expect(otherLlm.requests).toHaveLength(0);
