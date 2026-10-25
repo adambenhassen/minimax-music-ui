@@ -192,6 +192,19 @@ describe('useLibrary', () => {
     expect(library).toHaveBeenCalledTimes(2);
     expect(lifecycle.updatesAfterUnmount).toBe(0);
   });
+
+  it('does not poll after unmount with a pending timer', async () => {
+    const library = vi.spyOn(api, 'library').mockResolvedValue([doneTrack()]);
+
+    const mounted = await mount(createElement(LibraryHarness));
+    expect(library).toHaveBeenCalledTimes(1);
+    mounted.unmount();
+
+    await advanceTimersBy(10000);
+
+    expect(library).toHaveBeenCalledTimes(1);
+    expect(lifecycle.updatesAfterUnmount).toBe(0);
+  });
 });
 
 describe('useHealth', () => {
