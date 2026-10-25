@@ -4,6 +4,7 @@ import { coverStyle } from '../lib/cover';
 import { fmtTime, fmtTook } from '../lib/format';
 import { api } from '../api';
 import { Download, Pause, Play, Refresh, Reuse, Spinner, Trash, X } from './Icons';
+import { DownloadButton } from './DownloadButton';
 import { ProgressDetail } from './ProgressDetail';
 
 interface Props {
@@ -82,7 +83,7 @@ export function TrackDetail({ track: t, groupSize, active, playing, onClose, onP
         {err && <div className="text-xs text-red-400 break-words rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">{t.error}</div>}
 
         <div className="flex flex-wrap items-center gap-2">
-          {done && <a className="btn-ghost border border-ink-600" href={api.downloadUrl(t.id)}><Download width={16} height={16} /> Download</a>}
+          {done && <DownloadButton className="btn-ghost border border-ink-600" url={api.downloadUrl(t.id)} title="Download"><Download width={16} height={16} /> Download</DownloadButton>}
           <button className="btn-ghost border border-ink-600" onClick={() => onReuse(t)}><Reuse width={16} height={16} /> Reuse settings</button>
           {err && <button className="btn-ghost border border-ink-600" onClick={() => onRetry(t)}><Refresh width={16} height={16} /> Retry</button>}
           <button className="btn-ghost border border-ink-600 hover:!text-red-400" onClick={() => onDelete(t)}>

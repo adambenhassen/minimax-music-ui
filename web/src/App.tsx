@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { api, setAuthPromptHandler } from './api';
 import { useHealth, useLibrary } from './hooks/usePolling';
 import { isInflight, type GenerateInput, type Track } from './types';
 import { Sidebar, type View } from './components/Sidebar';
@@ -28,16 +28,103 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  const [authToken, setAuthToken] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const authPending = useRef<{ resolve: () => void; reject: (reason: Error) => void } | null>(null);
+  const authInput = useRef<HTMLInputElement>(null);
+  const authDialog = useRef<HTMLElement>(null);
+  const authReturnFocus = useRef<HTMLElement | null>(null);
+
+  const requestAuthentication = useCallback(() => new Promise<void>((resolve, reject) => {
+    const activeElement = document.activeElement;
+    authReturnFocus.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
+    setAuthToken('');
+    setAuthError(null);
+    setAuthPromptOpen(true);
+    authPending.current = { resolve, reject };
+  }), []);
+
+  useEffect(() => {
+    const unregister = setAuthPromptHandler(requestAuthentication);
+    return () => {
+      unregister();
+      authPending.current?.reject(new Error('Authentication prompt closed'));
+      authPending.current = null;
+    };
+  }, [requestAuthentication]);
+
   const health = useHealth();
   const { tracks, error: libError, refresh, setTracks } = useLibrary();
 
   useEffect(() => { localStorage.setItem(FORM_KEY, JSON.stringify(form)); }, [form]);
+  useEffect(() => {
+    if (!authPromptOpen) {
+      const target = authReturnFocus.current;
+      if (target?.isConnected) target.focus();
+      authReturnFocus.current = null;
+      return;
+    }
+    authInput.current?.focus();
+  }, [authPromptOpen]);
 
   const doneTracks = useMemo(() => tracks.filter((t) => t.status === 'done'), [tracks]);
   const active = useMemo(() => tracks.find((t) => t.id === activeId) ?? null, [tracks, activeId]);
   const selected = useMemo(() => tracks.find((t) => t.id === selectedId) ?? null, [tracks, selectedId]);
   const closeDetail = useCallback(() => setSelectedId(null), []);
   const inflight = tracks.filter(isInflight).length;
+
+  const submitAuthToken = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!authToken.trim() || authSubmitting) return;
+    const candidate = authToken;
+    setAuthError(null);
+    setAuthSubmitting(true);
+    try {
+      if (!await api.authenticate(candidate)) {
+        setAuthError('That token is wrong. Check it and try again.');
+        return;
+      }
+      setAuthToken('');
+      const pending = authPending.current;
+      authPending.current = null;
+      setAuthPromptOpen(false);
+      pending?.resolve();
+    } catch (error) {
+      setAuthError((error as Error).message);
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const cancelAuthPrompt = () => {
+    const pending = authPending.current;
+    authPending.current = null;
+    setAuthPromptOpen(false);
+    setAuthToken('');
+    setAuthError(null);
+    pending?.reject(new Error('Authentication canceled'));
+  };
+
+  const handleAuthKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (!authSubmitting) cancelAuthPrompt();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const controls = Array.from(authDialog.current?.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)') ?? []);
+    if (!controls.length) return;
+    if (event.shiftKey && document.activeElement === controls[0]) {
+      event.preventDefault();
+      controls[controls.length - 1].focus();
+    } else if (!event.shiftKey && document.activeElement === controls[controls.length - 1]) {
+      event.preventDefault();
+      controls[0].focus();
+    }
+  };
 
   const visible = useMemo(() => {
     if (view !== 'library' || !query.trim()) return tracks;
@@ -148,6 +235,44 @@ export default function App() {
         )}
       </div>
       <Player track={active} playing={playing} onPlayingChange={setPlaying} onPrev={() => step(-1)} onNext={() => step(1)} onEnded={() => step(1)} />
+      {authPromptOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4">
+          <section
+            ref={authDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ui-token-title"
+            aria-describedby="ui-token-help"
+            className="w-full max-w-[320px] rounded-lg border border-ink-700 bg-ink-900 p-6 text-zinc-100 shadow-2xl"
+            onKeyDown={handleAuthKeyDown}
+          >
+            <h2 id="ui-token-title" className="text-base font-semibold">UI server token</h2>
+            <p id="ui-token-help" className="mt-1 text-xs text-zinc-500">Enter the token configured by the UI server.</p>
+            <form className="mt-4" onSubmit={(event) => void submitAuthToken(event)}>
+              <label className="label mb-1 block" htmlFor="ui-token">Token</label>
+              <input
+                ref={authInput}
+                id="ui-token"
+                name="ui-token"
+                type="password"
+                className={`field ${authError ? 'border-red-500/70 focus:border-red-400 focus:ring-red-400/40' : ''}`}
+                value={authToken}
+                onChange={(event) => { setAuthToken(event.target.value); setAuthError(null); }}
+                autoComplete="off"
+                autoFocus
+                disabled={authSubmitting}
+                aria-invalid={!!authError}
+                aria-describedby={authError ? 'ui-token-help ui-token-error' : 'ui-token-help'}
+              />
+              {authError && <p id="ui-token-error" className="mt-1 text-xs text-red-400" role="alert">{authError}</p>}
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" className="btn-ghost" onClick={cancelAuthPrompt} disabled={authSubmitting}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={!authToken.trim() || authSubmitting}>{authSubmitting ? 'Checking…' : 'Continue'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

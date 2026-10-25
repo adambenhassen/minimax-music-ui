@@ -1,6 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setAuthPromptHandler } from '../src/api';
 import { Player } from '../src/components/Player';
 import type { Track } from '../src/types';
 
@@ -17,6 +18,7 @@ let mediaStates: WeakMap<HTMLMediaElement, MediaState>;
 let play: ReturnType<typeof vi.fn>;
 let load: ReturnType<typeof vi.fn>;
 let mediaDescriptors: Map<string, PropertyDescriptor | undefined>;
+let unregisterAuthHandler: (() => void) | undefined;
 
 function mediaState(element: HTMLMediaElement): MediaState {
   let state = mediaStates.get(element);
@@ -82,6 +84,12 @@ async function dispatchMediaEvent(audio: HTMLAudioElement, type: string) {
   });
 }
 
+async function flush() {
+  for (let i = 0; i < 8; i++) {
+    await act(async () => { await Promise.resolve(); });
+  }
+}
+
 beforeEach(() => {
   const prototype = HTMLMediaElement.prototype;
   const properties = ['currentTime', 'duration', 'ended', 'load', 'pause', 'play'];
@@ -117,6 +125,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  unregisterAuthHandler?.();
+  unregisterAuthHandler = undefined;
   for (const root of mountedRoots.splice(0)) act(() => root.unmount());
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -208,5 +218,87 @@ describe('Player live playback', () => {
 
     expect(audio.getAttribute('src')).toBe('/api/tracks/second/audio');
     expect(audio.currentTime).toBe(0);
+  });
+
+  it('authenticates and retries a native audio source after its request fails with 401', async () => {
+    let authorized = false;
+    let completeAuthentication!: () => void;
+    const prompt = vi.fn(() => new Promise<void>((resolve) => {
+      completeAuthentication = () => { authorized = true; resolve(); };
+    }));
+    unregisterAuthHandler = setAuthPromptHandler(prompt);
+
+    const requests: { url: string; method: string; authorized: boolean }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      requests.push({ url: String(input), method, authorized });
+      const ok = method !== 'HEAD' || authorized;
+      return { ok, status: ok ? 200 : 401, arrayBuffer: async () => new ArrayBuffer(8) } as Response;
+    }));
+
+    const { audio } = await mount(track('protected', 'done', null), true);
+    const loadsBeforeFailure = load.mock.calls.length;
+    await dispatchMediaEvent(audio, 'error');
+    await flush();
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(requests.filter((request) => request.method === 'HEAD')).toEqual([
+      { url: '/api/tracks/protected/audio', method: 'HEAD', authorized: false },
+    ]);
+
+    await act(async () => { completeAuthentication(); await Promise.resolve(); });
+    await flush();
+
+    expect(requests.filter((request) => request.method === 'HEAD')).toEqual([
+      { url: '/api/tracks/protected/audio', method: 'HEAD', authorized: false },
+      { url: '/api/tracks/protected/audio', method: 'HEAD', authorized: true },
+    ]);
+    expect(audio.getAttribute('src')).toBe('/api/tracks/protected/audio');
+    expect(load.mock.calls.length).toBeGreaterThan(loadsBeforeFailure);
+  });
+
+  it('prompts again when playback recovery is retried after authentication is canceled', async () => {
+    let authorized = false;
+    let completeAuthentication!: () => void;
+    const prompt = vi.fn()
+      .mockRejectedValueOnce(new Error('Authentication canceled'))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => {
+        completeAuthentication = () => { authorized = true; resolve(); };
+      }));
+    unregisterAuthHandler = setAuthPromptHandler(prompt);
+
+    const requests: { method: string; authorized: boolean }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      requests.push({ method, authorized });
+      const ok = method !== 'HEAD' || authorized;
+      return { ok, status: ok ? 200 : 401, arrayBuffer: async () => new ArrayBuffer(8) } as Response;
+    }));
+
+    const { audio, host } = await mount(track('canceled', 'done', null), true);
+    await dispatchMediaEvent(audio, 'error');
+    await flush();
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('playback error');
+
+    await dispatchMediaEvent(audio, 'error');
+    await flush();
+
+    expect(prompt).toHaveBeenCalledTimes(2);
+    expect(requests.filter((request) => request.method === 'HEAD')).toEqual([
+      { method: 'HEAD', authorized: false },
+      { method: 'HEAD', authorized: false },
+    ]);
+
+    await act(async () => { completeAuthentication(); await Promise.resolve(); });
+    await flush();
+
+    expect(requests.filter((request) => request.method === 'HEAD')).toEqual([
+      { method: 'HEAD', authorized: false },
+      { method: 'HEAD', authorized: false },
+      { method: 'HEAD', authorized: true },
+    ]);
+    expect(host.textContent).not.toContain('playback error');
   });
 });

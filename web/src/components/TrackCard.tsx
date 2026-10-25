@@ -4,6 +4,7 @@ import { coverStyle } from '../lib/cover';
 import { fmtAgo, fmtTime, fmtTook } from '../lib/format';
 import { api } from '../api';
 import { Alert, Download, Pause, Play, Refresh, Reuse, Spinner, Trash, X } from './Icons';
+import { DownloadButton } from './DownloadButton';
 import { ProgressDetail } from './ProgressDetail';
 
 interface Props {
@@ -60,7 +61,7 @@ export function TrackCard({ track: t, groupSize, active, playing, selected, onSe
             </div>
             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
               {done && (
-                <a className="icon-btn" href={api.downloadUrl(t.id)} title="Download"><Download width={16} height={16} /></a>
+                <DownloadButton className="icon-btn" url={api.downloadUrl(t.id)} title="Download"><Download width={16} height={16} /></DownloadButton>
               )}
               <button className="icon-btn" title="Reuse settings" onClick={() => onReuse(t)}><Reuse width={16} height={16} /></button>
               {err && <button className="icon-btn" title="Retry" onClick={() => onRetry(t)}><Refresh width={16} height={16} /></button>}
