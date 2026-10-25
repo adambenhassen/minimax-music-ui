@@ -149,6 +149,26 @@ describe('demo mode', () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
+  it('does not pump a session after it has been evicted', async () => {
+    const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1 });
+    const started = vi.spyOn(globalThis, 'setInterval');
+    const cleared = vi.spyOn(globalThis, 'clearInterval');
+    try {
+      const responses = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+        request(app).post('/api/generate').send({ prompt: `concurrent ${i}` })));
+      expect(responses.every((response) => response.status === 201)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const active = started.mock.results
+        .filter((result): result is typeof result & { type: 'return' } => result.type === 'return')
+        .map((result) => result.value)
+        .filter((timer) => !cleared.mock.calls.some(([stopped]) => stopped === timer));
+      expect(active).toHaveLength(1);
+    } finally {
+      for (const result of started.mock.results) if (result.type === 'return') globalThis.clearInterval(result.value);
+    }
+  });
+
   it('refuses writes to seed tracks, settings and templates', async () => {
     const { app, lib } = await setup();
     expect((await request(app).delete('/api/tracks/s1')).status).toBe(403);

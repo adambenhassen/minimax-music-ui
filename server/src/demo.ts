@@ -39,6 +39,7 @@ const DEMO_SETTINGS = {
 };
 
 interface Session {
+  sid: string;
   tracks: Track[];
   lastSeen: number;
   running: boolean;
@@ -79,7 +80,7 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
     }
     let sid = randomUUID();
     while (sessions.has(sid)) sid = randomUUID();
-    const session: Session = { tracks: [], lastSeen: Date.now(), running: false, timer: null };
+    const session: Session = { sid, tracks: [], lastSeen: Date.now(), running: false, timer: null };
     sessions.set(sid, session);
     res.cookie(COOKIE, sid, { httpOnly: true, sameSite: 'lax', maxAge: sessionTtl });
     return session;
@@ -91,7 +92,7 @@ export function demoRouter(library: Library, tracksDir: string, opts: DemoOption
 
   /** Run the visitor's queue one track at a time, like the real RenderQueue. */
   const pump = (s: Session) => {
-    if (s.running) return;
+    if (sessions.get(s.sid) !== s || s.running) return;
     const track = s.tracks.slice().reverse().find((t) => t.status === 'queued'); // oldest first
     if (!track) return;
     s.running = true;
