@@ -52,6 +52,32 @@ function mockApi({ validToken = 'right-token', initiallyAuthorized = false } = {
   return { apiCalls, authTokens, fetchMock };
 }
 
+function mockDownloadApi() {
+  let authorized = false;
+  const authTokens: string[] = [];
+  const track = {
+    id: 'focus-track', groupId: 'focus-track', takeIndex: 0,
+    title: 'Focus return track', prompt: 'An instrumental song', lyrics: '[Instrumental]',
+    duration: 10, seed: null, format: 'wav', status: 'done', progress: 1, stage: 'done',
+    eta: null, stream: false, renderedSeconds: null, error: null, file: 'focus-track.wav',
+    createdAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:01:00.000Z',
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === '/api/auth') {
+      const body = JSON.parse(String(init?.body)) as { token: string };
+      authTokens.push(body.token);
+      authorized = body.token === 'right-token';
+      return response(authorized ? 204 : 401);
+    }
+    if (url === '/api/tracks/focus-track/audio?download') return response(authorized ? 200 : 401);
+    if (url === '/api/library') return response(200, [track]);
+    return response(200, successBody(url));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return { authTokens };
+}
+
 const mountedRoots: { root: Root; host: HTMLDivElement }[] = [];
 
 async function mountApp() {
@@ -87,6 +113,22 @@ async function enterTokenAndSubmit(host: HTMLElement, token: string) {
   });
   await act(async () => { submit!.click(); });
   await flush();
+}
+
+function downloadButton(host: HTMLElement) {
+  const button = Array.from(host.querySelectorAll<HTMLButtonElement>('button[aria-label="Download"]')).find((item) => !item.disabled);
+  if (!button) throw new Error('Expected an enabled track download button');
+  return button;
+}
+
+async function requestDownloadAuth(host: HTMLElement, button: HTMLButtonElement) {
+  await act(async () => {
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    button.click();
+  });
+  await flush();
+  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
 }
 
 afterEach(() => {
@@ -135,6 +177,33 @@ describe('UI token authentication', () => {
     expect(apiCalls.filter((call) => call.url === '/api/library')).toHaveLength(2);
     expect(apiCalls.filter((call) => call.url === '/api/templates')).toHaveLength(2);
     expect(apiCalls.every((call, index) => index < 3 || call.authorized)).toBe(true);
+  });
+
+  it('restores focus to the download button after canceling authentication', async () => {
+    mockDownloadApi();
+    const host = await mountApp();
+    const trigger = downloadButton(host);
+
+    await requestDownloadAuth(host, trigger);
+    await act(async () => { host.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')?.click(); });
+    await flush();
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('restores focus to the download button after successful authentication', async () => {
+    const { authTokens } = mockDownloadApi();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const host = await mountApp();
+    const trigger = downloadButton(host);
+
+    await requestDownloadAuth(host, trigger);
+    await enterTokenAndSubmit(host, 'right-token');
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(authTokens).toEqual(['right-token']);
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('does not show a token prompt when API calls succeed without authentication', async () => {

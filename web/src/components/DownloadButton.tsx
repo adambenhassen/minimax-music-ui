@@ -39,7 +39,8 @@ export function DownloadButton({ url, className, title, children }: Props) {
         type="button"
         className={className}
         onClick={() => { void download(); }}
-        disabled={!url || busy}
+        disabled={!url}
+        aria-disabled={busy}
         title={label}
         aria-label={label}
         aria-busy={busy}

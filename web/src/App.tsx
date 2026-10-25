@@ -38,6 +38,8 @@ export default function App() {
   const authReturnFocus = useRef<HTMLElement | null>(null);
 
   const requestAuthentication = useCallback(() => new Promise<void>((resolve, reject) => {
+    const activeElement = document.activeElement;
+    authReturnFocus.current = activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : null;
     setAuthToken('');
     setAuthError(null);
     setAuthPromptOpen(true);
@@ -64,8 +66,6 @@ export default function App() {
       authReturnFocus.current = null;
       return;
     }
-    const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement && activeElement !== document.body) authReturnFocus.current = activeElement;
     authInput.current?.focus();
   }, [authPromptOpen]);
 
