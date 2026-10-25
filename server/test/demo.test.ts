@@ -53,7 +53,10 @@ describe('demo mode', () => {
   });
 
   it('serves read-only showcase requests without creating sessions or cookies', async () => {
-    const { app } = await setup();
+    const { app } = await setup({ renderMs: 5000, tickMs: 10, maxSessions: 2 });
+    const visitor = request.agent(app);
+    const laterVisitor = request.agent(app);
+    const visitorTrack = (await visitor.post('/api/generate').send({ prompt: 'keep this session' })).body[0] as Track;
     const health = await request(app).get('/api/health');
     const library = await request(app).get('/api/library');
     const audio = await request(app).get('/api/tracks/s1/audio');
@@ -63,6 +66,14 @@ describe('demo mode', () => {
     expect(audio.status).toBe(200);
     expect(audio.body.toString()).toBe('RIFFxxxxWAVEseed-a');
     for (const response of [health, library, audio]) expect(response.headers['set-cookie']).toBeUndefined();
+
+    const laterTrack = (await laterVisitor.post('/api/generate').send({ prompt: 'second visitor' })).body[0] as Track;
+    const retained = await visitor.get('/api/library');
+    expect(retained.body.map((t: Track) => t.id)).toContain(visitorTrack.id);
+    expect(retained.headers['set-cookie']).toBeUndefined();
+    await visitor.delete(`/api/tracks/${visitorTrack.id}`);
+    await laterVisitor.delete(`/api/tracks/${laterTrack.id}`);
+    await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
   it('does not adopt unknown client session ids when generating', async () => {
