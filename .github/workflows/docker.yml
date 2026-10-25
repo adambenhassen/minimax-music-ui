@@ -50,7 +50,7 @@ jobs:
       - name: Smoke-test main image
         run: |
           set -euo pipefail
-          container_id="$(docker run --detach minimax-music-ui:pr)"
+          container_id="$(docker run --detach --env UI_TOKEN=ci-smoke-token minimax-music-ui:pr)"
           cleanup() {
             docker rm --force "$container_id" >/dev/null 2>&1 || true
           }
@@ -60,7 +60,7 @@ jobs:
           while (( SECONDS < deadline )); do
             status="$(
               docker exec "$container_id" node -e '
-                fetch("http://127.0.0.1:8787/api/library", { signal: AbortSignal.timeout(1000) })
+                fetch("http://127.0.0.1:8787/api/ping", { signal: AbortSignal.timeout(1000) })
                   .then((response) => {
                     console.log(response.status);
                     process.exit(response.status === 200 ? 0 : 1);
@@ -81,7 +81,7 @@ jobs:
           done
 
           docker logs "$container_id"
-          echo "GET /api/library did not return HTTP 200 within 30 seconds" >&2
+          echo "GET /api/ping did not return HTTP 200 within 30 seconds" >&2
           exit 1
 
       - name: Prepare synthetic demo data

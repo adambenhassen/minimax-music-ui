@@ -119,6 +119,7 @@ The inference server address is resolved in this order:
 
 | Variable | Default | Description |
 |---|---|---|
+| `UI_TOKEN` | – | Optional shared token that protects every `/api/*` route; use a random value of at least 32 characters. The UI does not show a token prompt yet; a follow-up will add one. Scripts should send `Authorization: Bearer $UI_TOKEN`; browser clients can exchange the token at `POST /api/auth` for an HttpOnly session cookie. |
 | `MUSIC_API` | – | Base URL of the inference server, path prefix allowed, e.g. `http://host:8000` (overrides Settings) |
 | `MUSIC_API_KEY` | – | Sent as `Authorization: Bearer …` if the inference server was started with `--api-key` (overrides Settings) |
 | `LLM_API` | – | OpenAI-compatible base URL incl. `/v1` for prompt enhancement, e.g. `https://api.openai.com/v1`, `http://localhost:11434/v1` (overrides Settings) |
@@ -128,6 +129,8 @@ The inference server address is resolved in this order:
 | `PORT` | `8787` | Port for the UI server |
 | `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
 | `STATIC_DIR` | `web/dist` (if built) | Directory of the built SPA to serve |
+
+When `UI_TOKEN` is unset, the server logs that the UI is unauthenticated. Non-GET/HEAD API requests also require an `Authorization` or `X-Requested-With` header to block cross-site writes; the web client sends `X-Requested-With`. During development, the Vite proxy adds the configured `UI_TOKEN` to safe reads and writes carrying `X-Requested-With`.
 
 ## Development
 
@@ -160,8 +163,12 @@ docker run --read-only -p 8787:8787 minimax-music-ui-demo
 
 ## UI server API
 
+When `UI_TOKEN` is set, all API routes require a bearer token or the session cookie from `POST /api/auth`, except `POST /api/auth` itself and `GET /api/ping`. The auth endpoint accepts `{"token":"..."}` and sets an `HttpOnly; SameSite=Strict; Path=/api` cookie (plus `Secure` over HTTPS). The UI has no token prompt yet, so a browser needs that cookie; scripts can use the bearer header directly.
+
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/api/ping` | Public liveness check; does not contact the inference server |
+| `POST` | `/api/auth` | `{token}` → 204 and an authenticated session cookie; 401 for an incorrect token |
 | `GET` | `/api/health` | `demo` (read-only demo, see above), `upstreamReachable` (via `/v1/models`), `ready` (false only if an optional upstream `/health` answers 503), `capabilities` from that `/health`, `enhance` (an LLM is configured), queue state |
 | `GET` | `/api/library` | Tracks, newest first |
 | `POST` | `/api/generate` | `{title?, prompt, lyrics?, duration, seed?, format, takes}` → created tracks (queued) |

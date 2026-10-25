@@ -17,7 +17,11 @@ const seedTrack = (id: string, file: string): Track => ({
   createdAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:30.000Z',
 });
 
-async function setup(demo: DemoOptions = { renderMs: 120, tickMs: 20 }, env: EnvOverrides = { musicApi: null, apiKey: null }) {
+async function setup(
+  demo: DemoOptions = { renderMs: 120, tickMs: 20 },
+  env: EnvOverrides = { musicApi: null, apiKey: null },
+  uiToken: string | null = null,
+) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'demo-'));
   const tracksDir = path.join(dir, 'tracks');
   await fs.mkdir(tracksDir);
@@ -31,7 +35,12 @@ async function setup(demo: DemoOptions = { renderMs: 120, tickMs: 20 }, env: Env
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
   await templates.load();
   const queue = new RenderQueue(lib, upstream, tracksDir, () => {}, 20);
+  const previousUiToken = process.env.UI_TOKEN;
+  if (uiToken === null) delete process.env.UI_TOKEN;
+  else process.env.UI_TOKEN = uiToken;
   const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo });
+  if (previousUiToken === undefined) delete process.env.UI_TOKEN;
+  else process.env.UI_TOKEN = previousUiToken;
   return { app, lib };
 }
 
@@ -52,11 +61,20 @@ describe('demo mode', () => {
     expect(h.body).toMatchObject({ demo: true, upstreamReachable: true, ready: true, capabilities: [], enhance: false });
   });
 
+  it('requires UI_TOKEN for demo API reads while leaving ping public', async () => {
+    const { app } = await setup(undefined, undefined, 'test-ui-token');
+    expect((await request(app).get('/api/health')).status).toBe(401);
+    const health = await request(app).get('/api/health').set('Authorization', 'Bearer test-ui-token');
+    expect(health.status).toBe(200);
+    expect(health.body.demo).toBe(true);
+    expect((await request(app).get('/api/ping')).status).toBe(200);
+  });
+
   it('serves read-only showcase requests without creating sessions or cookies', async () => {
     const { app } = await setup({ renderMs: 5000, tickMs: 10, maxSessions: 2 });
     const visitor = request.agent(app);
     const laterVisitor = request.agent(app);
-    const visitorTrack = (await visitor.post('/api/generate').send({ prompt: 'keep this session' })).body[0] as Track;
+    const visitorTrack = (await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'keep this session' })).body[0] as Track;
     const health = await request(app).get('/api/health');
     const library = await request(app).get('/api/library');
     const audio = await request(app).get('/api/tracks/s1/audio');
@@ -67,19 +85,19 @@ describe('demo mode', () => {
     expect(audio.body.toString()).toBe('RIFFxxxxWAVEseed-a');
     for (const response of [health, library, audio]) expect(response.headers['set-cookie']).toBeUndefined();
 
-    const laterTrack = (await laterVisitor.post('/api/generate').send({ prompt: 'second visitor' })).body[0] as Track;
+    const laterTrack = (await laterVisitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'second visitor' })).body[0] as Track;
     const retained = await visitor.get('/api/library');
     expect(retained.body.map((t: Track) => t.id)).toContain(visitorTrack.id);
     expect(retained.headers['set-cookie']).toBeUndefined();
-    await visitor.delete(`/api/tracks/${visitorTrack.id}`);
-    await laterVisitor.delete(`/api/tracks/${laterTrack.id}`);
+    await visitor.delete(`/api/tracks/${visitorTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await laterVisitor.delete(`/api/tracks/${laterTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
   it('does not adopt unknown client session ids when generating', async () => {
     const { app } = await setup();
     const attackerSid = 'aaaaaaaaaaaaaaaaaaaaaaaa';
-    const generated = await request(app).post('/api/generate').set('Cookie', `demo_sid=${attackerSid}`).send({ prompt: 'fresh session' });
+    const generated = await request(app).post('/api/generate').set('Cookie', `demo_sid=${attackerSid}`).set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'fresh session' });
     const cookie = generated.headers['set-cookie']?.[0] as string | undefined;
     const freshSid = /demo_sid=([^;]+)/.exec(cookie ?? '')?.[1];
 
@@ -89,7 +107,7 @@ describe('demo mode', () => {
     const unknownRead = await request(app).get('/api/library').set('Cookie', `demo_sid=${attackerSid}`);
     expect(unknownRead.body.map((t: Track) => t.id)).toEqual(['s1']);
     expect(unknownRead.headers['set-cookie']).toBeUndefined();
-    await request(app).delete(`/api/tracks/${generated.body[0].id}`).set('Cookie', `demo_sid=${freshSid}`);
+    await request(app).delete(`/api/tracks/${generated.body[0].id}`).set('Cookie', `demo_sid=${freshSid}`).set('X-Requested-With', 'XMLHttpRequest');
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
@@ -99,15 +117,15 @@ describe('demo mode', () => {
   ])('rejects oversized $field without allocating a session or cookie', async ({ body }) => {
     const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1 });
     const visitor = request.agent(app);
-    const track = (await visitor.post('/api/generate').send({ prompt: 'existing session' })).body[0] as Track;
-    const oversized = await request(app).post('/api/generate').send(body);
+    const track = (await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'existing session' })).body[0] as Track;
+    const oversized = await request(app).post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send(body);
     const cookie = oversized.headers['set-cookie']?.[0] as string | undefined;
 
     if (oversized.status === 201 && cookie) {
-      await request(app).delete(`/api/tracks/${oversized.body[0].id}`).set('Cookie', cookie);
+      await request(app).delete(`/api/tracks/${oversized.body[0].id}`).set('Cookie', cookie).set('X-Requested-With', 'XMLHttpRequest');
     }
     const retainedLibrary = await visitor.get('/api/library');
-    await visitor.delete(`/api/tracks/${track.id}`);
+    await visitor.delete(`/api/tracks/${track.id}`).set('X-Requested-With', 'XMLHttpRequest');
 
     expect(oversized.status).toBe(413);
     expect(oversized.headers['set-cookie']).toBeUndefined();
@@ -120,16 +138,16 @@ describe('demo mode', () => {
     const responses = [];
     for (let i = 0; i < 20; i++) {
       const prefix = String(i);
-      responses.push(await visitor.post('/api/generate').send({
+      responses.push(await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({
         prompt: `${prefix}${'p'.repeat(2_000 - prefix.length)}`,
         lyrics: `${prefix}${'l'.repeat(10_000 - prefix.length)}`,
       }));
     }
     const library = await visitor.get('/api/library');
     const generated = library.body.filter((t: Track) => t.id !== 's1') as Track[];
-    for (const track of generated) await visitor.delete(`/api/tracks/${track.id}`);
-    const replacement = await visitor.post('/api/generate').send({ prompt: 'replacement'.padEnd(2_000, 'p'), lyrics: 'replacement'.padEnd(10_000, 'l') });
-    if (replacement.status === 201) await visitor.delete(`/api/tracks/${replacement.body[0].id}`);
+    for (const track of generated) await visitor.delete(`/api/tracks/${track.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    const replacement = await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'replacement'.padEnd(2_000, 'p'), lyrics: 'replacement'.padEnd(10_000, 'l') });
+    if (replacement.status === 201) await visitor.delete(`/api/tracks/${replacement.body[0].id}`).set('X-Requested-With', 'XMLHttpRequest');
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     expect(responses.map((response) => response.status)).toEqual([201, ...Array(19).fill(429)]);
@@ -175,21 +193,21 @@ describe('demo mode', () => {
     const oldest = request.agent(app);
     const lru = request.agent(app);
     const replacement = request.agent(app);
-    const oldestTrack = (await oldest.post('/api/generate').send({ prompt: 'oldest' })).body[0] as Track;
-    const lruTrack = (await lru.post('/api/generate').send({ prompt: 'least recently used' })).body[0] as Track;
+    const oldestTrack = (await oldest.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'oldest' })).body[0] as Track;
+    const lruTrack = (await lru.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'least recently used' })).body[0] as Track;
     await until(async () => (await lru.get('/api/library')).body.find((t: Track) => t.id === lruTrack.id)?.status === 'running');
     await oldest.get('/api/library');
     expect(clearInterval).not.toHaveBeenCalled();
 
-    const replacementTrack = (await replacement.post('/api/generate').send({ prompt: 'replacement' })).body[0] as Track;
+    const replacementTrack = (await replacement.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'replacement' })).body[0] as Track;
     expect((await oldest.get('/api/library')).body.map((t: Track) => t.id)).toContain(oldestTrack.id);
     const evicted = await lru.get('/api/library');
     expect(evicted.body.map((t: Track) => t.id)).toEqual(['s1']);
     expect(evicted.headers['set-cookie']).toBeUndefined();
     expect(clearInterval).toHaveBeenCalled();
 
-    await oldest.delete(`/api/tracks/${oldestTrack.id}`);
-    await replacement.delete(`/api/tracks/${replacementTrack.id}`);
+    await oldest.delete(`/api/tracks/${oldestTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await replacement.delete(`/api/tracks/${replacementTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
 
@@ -199,7 +217,7 @@ describe('demo mode', () => {
     const cleared = vi.spyOn(globalThis, 'clearInterval');
     try {
       const responses = await Promise.all(Array.from({ length: 20 }, (_, i) =>
-        request(app).post('/api/generate').send({ prompt: `concurrent ${i}` })));
+        request(app).post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: `concurrent ${i}` })));
       expect(responses.every((response) => response.status === 201)).toBe(true);
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -215,21 +233,21 @@ describe('demo mode', () => {
 
   it('refuses writes to seed tracks, settings and templates', async () => {
     const { app, lib } = await setup();
-    expect((await request(app).delete('/api/tracks/s1')).status).toBe(403);
+    expect((await request(app).delete('/api/tracks/s1').set('X-Requested-With', 'XMLHttpRequest')).status).toBe(403);
     expect(lib.get('s1')).toBeDefined();
-    expect((await request(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(403);
-    expect((await request(app).post('/api/enhance').send({ prompt: 'x' })).status).toBe(403);
-    expect((await request(app).post('/api/lyrics').send({ prompt: 'x' })).status).toBe(403);
-    expect((await request(app).post('/api/settings/test').send({})).status).toBe(403);
-    expect((await request(app).post('/api/templates').send({ name: 'n', prompt: 'p' })).status).toBe(403);
-    expect((await request(app).delete('/api/templates/x')).status).toBe(403);
+    expect((await request(app).put('/api/settings').set('X-Requested-With', 'XMLHttpRequest').send({ musicApi: 'http://x:1' })).status).toBe(403);
+    expect((await request(app).post('/api/enhance').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x' })).status).toBe(403);
+    expect((await request(app).post('/api/lyrics').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x' })).status).toBe(403);
+    expect((await request(app).post('/api/settings/test').set('X-Requested-With', 'XMLHttpRequest').send({})).status).toBe(403);
+    expect((await request(app).post('/api/templates').set('X-Requested-With', 'XMLHttpRequest').send({ name: 'n', prompt: 'p' })).status).toBe(403);
+    expect((await request(app).delete('/api/templates/x').set('X-Requested-With', 'XMLHttpRequest')).status).toBe(403);
   });
 
   it('simulates a render per visitor and hands out a seed file as the result', async () => {
     const { app, lib } = await setup();
     const agent = request.agent(app);
     const other = request.agent(app);
-    const res = await agent.post('/api/generate').send({ prompt: 'lofi', duration: 30, takes: 2, seed: 9 });
+    const res = await agent.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'lofi', duration: 30, takes: 2, seed: 9 });
     expect(res.status).toBe(201);
     expect(res.body).toHaveLength(2);
     expect(res.body[0]).toMatchObject({ status: 'queued', seed: 9 });
@@ -252,16 +270,16 @@ describe('demo mode', () => {
     // other visitors cannot see or fetch it
     expect((await other.get(`/api/tracks/${id}/audio`)).status).toBe(404);
     // the visitor can delete their own simulated track
-    expect((await agent.delete(`/api/tracks/${id}`)).status).toBe(200);
+    expect((await agent.delete(`/api/tracks/${id}`).set('X-Requested-With', 'XMLHttpRequest')).status).toBe(200);
     expect((await agent.get('/api/library')).body.map((t: Track) => t.id)).toEqual([res.body[1].id, 's1']);
   });
 
   it('cancelling a queued simulated track removes it', async () => {
     const { app } = await setup();
     const agent = request.agent(app);
-    const res = await agent.post('/api/generate').send({ prompt: 'x', duration: 60, takes: 2 });
+    const res = await agent.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x', duration: 60, takes: 2 });
     const second = res.body[1].id as string;
-    expect((await agent.delete(`/api/tracks/${second}`)).status).toBe(200);
+    expect((await agent.delete(`/api/tracks/${second}`).set('X-Requested-With', 'XMLHttpRequest')).status).toBe(200);
     expect((await agent.get('/api/library')).body.map((t: Track) => t.id)).toEqual([res.body[0].id, 's1']);
   });
 });

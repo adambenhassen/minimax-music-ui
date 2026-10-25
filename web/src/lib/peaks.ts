@@ -8,7 +8,7 @@ export function loadPeaks(url: string, buckets = BUCKETS): Promise<number[]> {
   let p = cache.get(key);
   if (!p) {
     p = (async () => {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       if (!res.ok) throw new Error(`audio ${res.status}`);
       const buf = await res.arrayBuffer();
       const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();

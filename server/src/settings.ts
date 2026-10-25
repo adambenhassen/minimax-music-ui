@@ -59,6 +59,11 @@ export function normalizeLlmApi(v: unknown): string | null {
   return url.toString().replace(/\/+$/, '');
 }
 
+export function sameOrigin(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return new URL(a).origin === new URL(b).origin;
+}
+
 const llmSource = (env: string | null | undefined, stored: string | null) => (env ? 'env' : stored ? 'settings' : 'none') as 'env' | 'settings' | 'none';
 
 /** Persists user-editable upstream settings; env vars always win over stored values. */
@@ -137,7 +142,12 @@ export class SettingsStore {
     const next = { ...this.stored }; // applied only if every field validates
     if (patch.musicApi !== undefined) {
       if (this.env.musicApi !== null) throw new ValidationError('MUSIC_API is set in the environment and cannot be changed here');
-      next.musicApi = normalizeMusicApi(patch.musicApi);
+      const musicApi = normalizeMusicApi(patch.musicApi);
+      if (!sameOrigin(this.effective().musicApi, musicApi)) {
+        if (this.env.apiKey !== null) throw new ValidationError('MUSIC_API_KEY is set in the environment and cannot be used with a different musicApi origin');
+        if (patch.apiKey === undefined) next.apiKey = null;
+      }
+      next.musicApi = musicApi;
     }
     if (patch.apiKey !== undefined) {
       if (this.env.apiKey !== null) throw new ValidationError('MUSIC_API_KEY is set in the environment and cannot be changed here');
@@ -150,7 +160,12 @@ export class SettingsStore {
     }
     if (patch.llmApi !== undefined) {
       if (this.env.llmApi != null) throw new ValidationError('LLM_API is set in the environment and cannot be changed here');
-      next.llmApi = normalizeLlmApi(patch.llmApi);
+      const llmApi = normalizeLlmApi(patch.llmApi);
+      if (!sameOrigin(this.env.llmApi ?? this.stored.llmApi, llmApi)) {
+        if (this.env.llmApiKey != null) throw new ValidationError('LLM_API_KEY is set in the environment and cannot be used with a different llmApi origin');
+        if (patch.llmApiKey === undefined) next.llmApiKey = null;
+      }
+      next.llmApi = llmApi;
     }
     if (patch.llmApiKey !== undefined) {
       if (this.env.llmApiKey != null) throw new ValidationError('LLM_API_KEY is set in the environment and cannot be changed here');
