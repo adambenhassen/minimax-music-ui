@@ -87,14 +87,14 @@ export function createApp(deps: AppDeps) {
   const sessionCookie = uiToken ? createHmac('sha256', uiToken).update('minimax-music-ui-session').digest('base64url') : null;
   if (!uiToken) log('WARNING: UI_TOKEN is unset; the UI server is unauthenticated');
 
-  app.use((req, res, next) => {
-    if (!req.path.startsWith('/api/')) return next();
+  app.use('/api', (req, res, next) => {
     const hasProtectionHeader = req.headers.authorization !== undefined || req.headers['x-requested-with'] !== undefined;
     if (req.method !== 'GET' && req.method !== 'HEAD' && !hasProtectionHeader) {
       return res.status(403).json({ error: 'state-changing API requests require Authorization or X-Requested-With' });
     }
     if (!uiToken) return next();
-    const exempt = (req.method === 'GET' && req.path === '/api/ping') || (req.method === 'POST' && req.path === '/api/auth');
+    const apiPath = req.path.toLowerCase();
+    const exempt = (req.method === 'GET' && apiPath === '/ping') || (req.method === 'POST' && apiPath === '/auth');
     if (!exempt && !hasUiCredential(req, uiToken, sessionCookie!)) return res.status(401).json({ error: 'unauthorized' });
     return next();
   });

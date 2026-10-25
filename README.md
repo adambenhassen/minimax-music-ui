@@ -130,7 +130,7 @@ The inference server address is resolved in this order:
 | `DATA_DIR` | `./data` | Where `library.json`, `templates.json`, `settings.json` and `tracks/` live |
 | `STATIC_DIR` | `web/dist` (if built) | Directory of the built SPA to serve |
 
-When `UI_TOKEN` is unset, the server logs that the UI is unauthenticated. Non-GET/HEAD API requests also require an `Authorization` or `X-Requested-With` header to block cross-site writes; the web client sends `X-Requested-With`. During development, the Vite proxy adds the configured `UI_TOKEN` as a bearer credential to proxied API requests.
+When `UI_TOKEN` is unset, the server logs that the UI is unauthenticated. Non-GET/HEAD API requests also require an `Authorization` or `X-Requested-With` header to block cross-site writes; the web client sends `X-Requested-With`. During development, the Vite proxy adds the configured `UI_TOKEN` to safe reads and writes carrying `X-Requested-With`.
 
 ## Development
 

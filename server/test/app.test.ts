@@ -520,6 +520,16 @@ describe('app', () => {
     expect((await request(app).get('/api/future-route')).status).toBe(401);
   });
 
+  it('requires credentials for API reads regardless of path casing', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    expect((await request(app).get('/API/library')).status).toBe(401);
+  });
+
+  it('applies the write guard to paths with different casing', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    expect((await request(app).post('/API/generate').send({ prompt: 'x' })).status).toBe(403);
+  });
+
   it('requires credentials for API writes when UI_TOKEN is set', async () => {
     const { app } = await setup({}, null, null, 'test-ui-token');
     const res = await request(app).post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x' });
