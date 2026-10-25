@@ -7,6 +7,8 @@ import { Waveform } from './Waveform';
 import { Download, Next, Pause, Play, Prev, Spinner } from './Icons';
 import { DownloadButton } from './DownloadButton';
 
+const WAVEFORM_REFRESH_SECONDS = 5;
+
 interface Props {
   track: Track | null;
   playing: boolean;
@@ -32,10 +34,14 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
 
   const live = track?.status === 'running';
   const rendered = track?.renderedSeconds ?? 0;
+  const waveformRendered = live && rendered > 0
+    ? Math.max(1, Math.floor((rendered - 1) / WAVEFORM_REFRESH_SECONDS) * WAVEFORM_REFRESH_SECONDS + 1)
+    : 0;
   const total = track ? (live ? track.duration : dur || track.duration) : 0;
   // live tracks: bump the url whenever more audio exists so a reload picks up the longer file;
   // empty while a rendering track has no audio yet (play is armed and starts on the first window)
   const src = track ? (live ? (rendered > 0 ? `${api.audioUrl(track.id)}?r=${Math.floor(rendered)}` : '') : api.audioUrl(track.id)) : '';
+  const waveformSrc = track ? (live ? (waveformRendered > 0 ? `${api.audioUrl(track.id)}?r=${waveformRendered}` : '') : api.audioUrl(track.id)) : '';
 
   useEffect(() => {
     const el = audio.current;
@@ -172,7 +178,7 @@ export function Player({ track, playing, onPlayingChange, onPrev, onNext, onEnde
       <div className="flex-1 flex items-center gap-3 min-w-0">
         <span className="text-[11px] text-zinc-400 tabular-nums w-10 text-right">{fmtTime(time)}</span>
         <div className="flex-1 min-w-0">
-          {track && src ? <Waveform url={src} progress={total ? time / total : 0} coverage={live ? Math.min(1, (dur || rendered) / track.duration) : 1} onSeek={seek} /> : <div className="h-[2px] bg-ink-700 rounded" />}
+          {track && waveformSrc ? <Waveform url={waveformSrc} progress={total ? time / total : 0} coverage={live ? Math.min(1, waveformRendered / track.duration) : 1} onSeek={seek} /> : <div className="h-[2px] bg-ink-700 rounded" />}
         </div>
         <span className="text-[11px] text-zinc-400 tabular-nums w-10">{fmtTime(total)}</span>
       </div>
