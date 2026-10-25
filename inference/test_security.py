@@ -224,6 +224,212 @@ class InferenceSpeechCancellationTests(TestCase):
 
         self.assertTrue(job["event"].is_set())
 
+    def test_worker_stays_unready_if_cancellation_hooks_cannot_install(self):
+        class StopWorker(Exception):
+            pass
+
+        class EmptyQueue:
+            def get(self):
+                raise StopWorker()
+
+        pipe = SimpleNamespace(
+            sampling_rate=44_100,
+            load_components=lambda **kwargs: None,
+            to=lambda device: None,
+        )
+        server.STATE["ready"] = True
+        server.STATE["hooks"] = True
+        server.QUEUE = EmptyQueue()
+        with (
+            patch.object(server.ModularPipeline, "from_pretrained", return_value=pipe, create=True),
+            patch.object(server.torch, "bfloat16", object(), create=True),
+            patch.object(server, "_install_progress_hooks", side_effect=RuntimeError("hooks missing")),
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaisesRegex(RuntimeError, "hooks missing"),
+        ):
+            server._worker()
+
+        self.assertFalse(server.STATE["ready"])
+        self.assertFalse(server.STATE["hooks"])
+        with self.assertRaises(server.HTTPException) as raised:
+            server.health()
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_active_disconnect_aborts_through_worker_hook_and_starts_next_job(self):
+        active_started = threading.Event()
+        disconnect_seen = threading.Event()
+        active_aborted = threading.Event()
+        next_started = threading.Event()
+        worker_errors = []
+        stop_worker = object()
+
+        class StopWorker(Exception):
+            pass
+
+        class StoppableQueue(queue.Queue):
+            def get(self, *args, **kwargs):
+                job = super().get(*args, **kwargs)
+                if job is stop_worker:
+                    raise StopWorker()
+                return job
+
+        class FakeLoop:
+            def progress_bar(self, iterable=None, total=None):
+                return iterable
+
+            def loop_step(self, components, block_state, k):
+                return components, block_state
+
+        class FakeAudio:
+            shape = (2, 1)
+
+            @property
+            def T(self):
+                return self
+
+        class FakeModel:
+            def register_forward_hook(self, hook, with_kwargs=False):
+                self.hook = hook
+
+        class FakePipe:
+            sampling_rate = 44_100
+            language_model = SimpleNamespace(model=FakeModel())
+
+            def load_components(self, **kwargs):
+                pass
+
+            def to(self, device):
+                pass
+
+            def __call__(self, prompt, **kwargs):
+                if prompt == "first render":
+                    active_started.set()
+                    if not disconnect_seen.wait(2):
+                        raise TimeoutError("client disconnect was not detected")
+                    try:
+                        FakeLoop().loop_step(None, None, k=0)
+                    except server._Cancelled:
+                        active_aborted.set()
+                        raise
+                    raise AssertionError("the worker hook did not cancel the active render")
+                next_started.set()
+                return [FakeAudio()]
+
+        class FakeGenerator:
+            def __init__(self, device):
+                pass
+
+            def manual_seed(self, seed):
+                return self
+
+        class ActiveDisconnectRequest:
+            async def is_disconnected(self):
+                if active_started.is_set() and server.QUEUE.qsize() > 0:
+                    disconnect_seen.set()
+                    return True
+                return False
+
+        class ConnectedRequest:
+            async def is_disconnected(self):
+                return False
+
+        diffusers = ModuleType("diffusers")
+        diffusers.__path__ = []
+        diffusers.ComponentsManager = server.ComponentsManager
+        diffusers.ModularPipeline = server.ModularPipeline
+        modular_pipelines = ModuleType("diffusers.modular_pipelines")
+        modular_pipelines.__path__ = []
+        minimax = ModuleType("diffusers.modular_pipelines.minimax_music3")
+        minimax.__path__ = []
+        decoders = ModuleType("diffusers.modular_pipelines.minimax_music3.decoders")
+        denoise = ModuleType("diffusers.modular_pipelines.minimax_music3.denoise")
+        denoise.MiniMaxMusic3ChunkLoopWrapper = FakeLoop
+        minimax.decoders = decoders
+        minimax.denoise = denoise
+        modular_pipelines.minimax_music3 = minimax
+        diffusers.modular_pipelines = modular_pipelines
+        modules = {
+            "diffusers": diffusers,
+            "diffusers.modular_pipelines": modular_pipelines,
+            "diffusers.modular_pipelines.minimax_music3": minimax,
+            "diffusers.modular_pipelines.minimax_music3.decoders": decoders,
+            "diffusers.modular_pipelines.minimax_music3.denoise": denoise,
+        }
+        server.QUEUE = StoppableQueue()
+        server.STATE["ready"] = False
+        server.STATE["hooks"] = False
+
+        def run_worker():
+            try:
+                server._worker()
+            except StopWorker:
+                pass
+            except BaseException as exc:
+                worker_errors.append(exc)
+
+        async def run_requests():
+            worker = threading.Thread(target=run_worker, daemon=True)
+            worker.start()
+            deadline = asyncio.get_running_loop().time() + 2
+            while not server.STATE["ready"] and asyncio.get_running_loop().time() < deadline:
+                if worker_errors:
+                    raise worker_errors[0]
+                await asyncio.sleep(0.005)
+            if not server.STATE["ready"]:
+                raise TimeoutError("worker did not become ready")
+
+            first = asyncio.create_task(
+                server.speech(
+                    server.SpeechRequest(
+                        input="[Verse]", instructions="first render", seed=1
+                    ),
+                    request=ActiveDisconnectRequest(),
+                    authorization="Bearer secret",
+                    x_api_key=None,
+                )
+            )
+            deadline = asyncio.get_running_loop().time() + 2
+            while not active_started.is_set() and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.005)
+            if not active_started.is_set():
+                raise TimeoutError("first render did not start")
+
+            second = asyncio.create_task(
+                server.speech(
+                    server.SpeechRequest(
+                        input="[Verse]", instructions="second render", seed=2
+                    ),
+                    request=ConnectedRequest(),
+                    authorization="Bearer secret",
+                    x_api_key=None,
+                )
+            )
+            first_response = await asyncio.wait_for(first, timeout=2)
+            second_response = await asyncio.wait_for(second, timeout=2)
+            server.QUEUE.put(stop_worker)
+            worker.join(timeout=2)
+            return first_response, second_response, worker
+
+        logs = io.StringIO()
+        with (
+            patch.dict(sys.modules, modules),
+            patch.object(server.ModularPipeline, "from_pretrained", return_value=FakePipe(), create=True),
+            patch.object(server.torch, "bfloat16", object(), create=True),
+            patch.object(server.torch, "Generator", FakeGenerator, create=True),
+            patch.object(server.sf, "write", lambda buf, audio, rate, **kwargs: buf.write(b"RIFF next"), create=True),
+            contextlib.redirect_stdout(logs),
+        ):
+            first_response, second_response, worker = asyncio.run(run_requests())
+
+        self.assertEqual(first_response.status_code, 499)
+        self.assertTrue(active_aborted.is_set())
+        self.assertTrue(next_started.is_set())
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.body, b"RIFF next")
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(worker_errors, [])
+        self.assertIn("cancelled by client", logs.getvalue())
+
     def test_non_streaming_job_returns_wav_and_seed_when_it_finishes(self):
         async def send():
             async with httpx.AsyncClient(

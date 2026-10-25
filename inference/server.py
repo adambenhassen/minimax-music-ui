@@ -168,6 +168,7 @@ class SpeechRequest(BaseModel):
 def _worker():
     """Loads the pipeline, then renders queued requests one at a time on the GPU."""
     global PIPE
+    STATE["ready"], STATE["hooks"] = False, False
     try:
         print("loading pipeline (~30 s warm, minutes cold; holds ~24 GB VRAM) ...", flush=True)
         if ARGS.offload:
@@ -179,14 +180,12 @@ def _worker():
         PIPE.load_components(dtype=torch.bfloat16)
         if not ARGS.offload:
             PIPE.to("cuda")
-        try:
-            _install_progress_hooks(PIPE)
-            STATE["hooks"] = True
-        except Exception as exc:  # diffusers internals moved; streaming still works, just without live progress
-            print("WARNING: progress hooks not installed (%s); stream=true will only deliver the final audio" % exc, flush=True)
+        _install_progress_hooks(PIPE)
+        STATE["hooks"] = True
         STATE["ready"], STATE["status"] = True, "ready"
         print("ready on http://%s:%d — %d Hz stereo" % (ARGS.host, ARGS.port, PIPE.sampling_rate), flush=True)
     except BaseException as exc:
+        STATE["ready"], STATE["hooks"] = False, False
         STATE["status"] = "load failed: %s" % exc
         print("FATAL: pipeline load failed: %s" % exc, flush=True)
         raise
