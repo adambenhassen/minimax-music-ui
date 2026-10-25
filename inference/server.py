@@ -29,6 +29,7 @@ Requests are rendered one at a time; generation is ~3x slower than realtime on a
     python server.py --host 127.0.0.1 --port 7862
 """
 import argparse
+import asyncio
 import base64
 import hmac
 import io
@@ -41,7 +42,7 @@ import uuid
 import soundfile as sf
 import torch
 from diffusers import ComponentsManager, ModularPipeline
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -73,9 +74,17 @@ def _check_cancel(job):
         raise _Cancelled()
 
 
+def _cancel_job(job):
+    with job["lock"]:
+        if job["completed"]:
+            return False
+        job["cancelled"] = True
+        return True
+
+
 def _install_progress_hooks(pipe):
     """Best-effort taps into the diffusers pipeline for real progress + per-window audio.
-    Only streaming jobs (CURRENT["job"] with an event queue) see any effect."""
+    Cancellation checks run for all jobs; only streaming jobs receive progress and audio."""
     from diffusers.modular_pipelines.minimax_music3 import decoders as _dec
     from diffusers.modular_pipelines.minimax_music3 import denoise as _dn
 
@@ -184,7 +193,9 @@ def _worker():
 
     while True:
         job = QUEUE.get()
-        if job["cancelled"]:  # streaming client left while queued
+        if job["cancelled"]:  # client left while queued
+            with job["lock"]:
+                job["completed"] = True
             job["event"].set()
             QUEUE.task_done()
             continue
@@ -207,20 +218,33 @@ def _worker():
                                      "sampleRate": int(PIPE.sampling_rate), "channels": int(audio.shape[0])})
             buf = io.BytesIO()
             sf.write(buf, audio.T, PIPE.sampling_rate, format="WAV", subtype="PCM_16")
-            job["wav"] = buf.getvalue()
+            with job["lock"]:
+                if job["cancelled"]:
+                    raise _Cancelled()
+                job["wav"] = buf.getvalue()
+                job["completed"] = True
             _emit(job, "done", {"seed": job["seed"], "sampleRate": int(PIPE.sampling_rate), "channels": int(audio.shape[0])})
             print("[%s] done in %.0f s" % (job["id"], time.time() - t0), flush=True)
         except _Cancelled:
-            job["error"] = "cancelled"
+            with job["lock"]:
+                job["error"] = "cancelled"
             print("[%s] cancelled by client" % job["id"], flush=True)
         except BaseException as exc:
-            job["error"] = "%s: %s" % (type(exc).__name__, exc)
-            _emit(job, "error", {"message": job["error"]})
-            print("[%s] failed: %s" % (job["id"], exc), flush=True)
+            with job["lock"]:
+                cancelled = job["cancelled"]
+                job["error"] = "cancelled" if cancelled else "%s: %s" % (type(exc).__name__, exc)
+                job["completed"] = True
+            if cancelled:
+                print("[%s] cancelled by client" % job["id"], flush=True)
+            else:
+                _emit(job, "error", {"message": job["error"]})
+                print("[%s] failed: %s" % (job["id"], exc), flush=True)
         finally:
             CURRENT["job"] = None
             if job["events"] is not None:
                 job["events"].put(None)
+            with job["lock"]:
+                job["completed"] = True
             job["event"].set()
             QUEUE.task_done()
 
@@ -242,7 +266,7 @@ def list_models():
 
 
 @app.post("/v1/audio/speech")
-def speech(req: SpeechRequest, authorization: str = Header(None), x_api_key: str = Header(None)):
+async def speech(req: SpeechRequest, request: Request, authorization: str = Header(None), x_api_key: str = Header(None)):
     if ARGS.api_key:
         supplied = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
         if not hmac.compare_digest(supplied.encode("utf-8"), ARGS.api_key.encode("utf-8")):
@@ -267,6 +291,8 @@ def speech(req: SpeechRequest, authorization: str = Header(None), x_api_key: str
         "wav": None,
         "error": None,
         "event": threading.Event(),
+        "lock": threading.Lock(),
+        "completed": False,
         "events": queue.Queue() if req.stream else None,
         "stream_audio": bool(req.stream_audio),
         "cancelled": False,
@@ -290,11 +316,14 @@ def speech(req: SpeechRequest, authorization: str = Header(None), x_api_key: str
                     name, payload = ev
                     yield "event: %s\ndata: %s\n\n" % (name, json.dumps(payload))
             finally:
-                job["cancelled"] = True  # client gone or stream finished: either way stop rendering
+                _cancel_job(job)
 
         return StreamingResponse(events(), media_type="text/event-stream",
                                  headers={"X-Seed": str(job["seed"]), "Cache-Control": "no-cache"})
-    job["event"].wait()  # synchronous, as upstream: the response body is the audio
+    while not job["event"].is_set():
+        if await request.is_disconnected() and _cancel_job(job):
+            return Response(status_code=499)
+        await asyncio.sleep(0.1)
     if job["error"]:
         raise HTTPException(500, job["error"])
     return Response(job["wav"], media_type="audio/wav", headers={"X-Seed": str(job["seed"])})
