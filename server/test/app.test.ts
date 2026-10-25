@@ -17,7 +17,13 @@ afterEach(async () => { await fake?.close(); fake = null; });
 let llm: FakeLlm | null = null;
 afterEach(async () => { await llm?.close(); llm = null; });
 
-async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey: string | null = null, env: EnvOverrides | null = null) {
+const writeRequest = (app: ReturnType<typeof createApp>) => ({
+  post: (url: string) => request(app).post(url).set('X-Requested-With', 'XMLHttpRequest'),
+  put: (url: string) => request(app).put(url).set('X-Requested-With', 'XMLHttpRequest'),
+  delete: (url: string) => request(app).delete(url).set('X-Requested-With', 'XMLHttpRequest'),
+});
+
+async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey: string | null = null, env: EnvOverrides | null = null, uiToken: string | null = null, log: (msg: string) => void = () => {}) {
   fake = await startFakeUpstream(opts);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'app-'));
   const lib = new Library(path.join(dir, 'library.json'));
@@ -31,7 +37,12 @@ async function setup(opts: Parameters<typeof startFakeUpstream>[0] = {}, apiKey:
   const queue = new RenderQueue(lib, upstream, tracksDir, () => {}, 20);
   // unreachable base: tests never hit GitHub; they seed the cache instead
   const skill = new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1');
-  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill, log: () => {} });
+  const previousUiToken = process.env.UI_TOKEN;
+  if (uiToken === null) delete process.env.UI_TOKEN;
+  else process.env.UI_TOKEN = uiToken;
+  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill, log });
+  if (previousUiToken === undefined) delete process.env.UI_TOKEN;
+  else process.env.UI_TOKEN = previousUiToken;
   return { app, lib, tracksDir, dir, upstream, queue };
 }
 
@@ -63,7 +74,7 @@ describe('app', () => {
 
   it('generate → queue → speech → file: maps fields, serialises takes, forwards bearer', async () => {
     const { app, lib } = await setup({ renderMs: 120 }, 'sekrit');
-    const res = await request(app).post('/api/generate').send({ prompt: 'ambient', lyrics: '', duration: 10, takes: 2, seed: 5 });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'ambient', lyrics: '', duration: 10, takes: 2, seed: 5 });
     expect(res.status).toBe(201);
     expect(res.body).toHaveLength(2);
     expect(res.body[0]).toMatchObject({ status: 'queued', seed: 5, lyrics: '[Instrumental]' });
@@ -93,7 +104,7 @@ describe('app', () => {
 
   it('uses the model id advertised by /v1/models', async () => {
     const { app, lib } = await setup({ modelId: 'MiniMaxAI/MiniMax-Music3', strictModel: true });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x' });
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ model: 'MiniMaxAI/MiniMax-Music3' });
   });
@@ -113,14 +124,14 @@ describe('app', () => {
     const { app, lib } = await setup({ modelId: null, strictModel: true });
     const h = await request(app).get('/api/health');
     expect(h.body).toMatchObject({ upstreamReachable: true, ready: true, models: [] });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x' });
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ model: 'MiniMaxAI/MiniMax-Music3' });
   });
 
   it('random seed → seed reported by the server (X-Seed) is stored', async () => {
     const { app, lib } = await setup();
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x' });
     expect(res.body[0].seed).toBeNull();
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(lib.get(res.body[0].id)?.seed).toBe(4242);
@@ -129,15 +140,15 @@ describe('app', () => {
 
   it('rejects bad input', async () => {
     const { app } = await setup();
-    expect((await request(app).post('/api/generate').send({})).status).toBe(400);
-    expect((await request(app).post('/api/generate').send({ prompt: 'x', format: 'flac' })).status).toBe(400);
-    expect((await request(app).post('/api/generate').send({ prompt: 'x', seed: 1.5 })).status).toBe(400);
+    expect((await writeRequest(app).post('/api/generate').send({})).status).toBe(400);
+    expect((await writeRequest(app).post('/api/generate').send({ prompt: 'x', format: 'flac' })).status).toBe(400);
+    expect((await writeRequest(app).post('/api/generate').send({ prompt: 'x', seed: 1.5 })).status).toBe(400);
   });
 
   it('records upstream failures on the track', async () => {
     const { app, lib } = await setup();
     await fake!.close(); fake = null;
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x' });
     expect(res.status).toBe(201);
     await until(() => lib.get(res.body[0].id)?.status === 'error');
     expect(lib.get(res.body[0].id)?.error).toMatch(/unreachable/);
@@ -146,22 +157,22 @@ describe('app', () => {
 
   it('delete: removes queued, aborts running, deletes finished files', async () => {
     const { app, lib, queue, tracksDir } = await setup({ renderMs: 500 });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', takes: 2 });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x', takes: 2 });
     const [a, b] = res.body as Track[];
     await until(() => lib.get(a.id)?.status === 'running');
-    expect((await request(app).delete(`/api/tracks/${b.id}`)).status).toBe(200);
+    expect((await writeRequest(app).delete(`/api/tracks/${b.id}`)).status).toBe(200);
     expect(queue.queued).toBe(0);
-    expect((await request(app).delete(`/api/tracks/${a.id}`)).status).toBe(200);
+    expect((await writeRequest(app).delete(`/api/tracks/${a.id}`)).status).toBe(200);
     await until(() => !queue.busy);
     await until(() => fake!.requests.some((r) => r.aborted));
     expect(lib.all()).toEqual([]);
-    expect((await request(app).delete(`/api/tracks/${a.id}`)).status).toBe(404);
+    expect((await writeRequest(app).delete(`/api/tracks/${a.id}`)).status).toBe(404);
 
-    const done = await request(app).post('/api/generate').send({ prompt: 'y', title: 'ambient piano' });
+    const done = await writeRequest(app).post('/api/generate').send({ prompt: 'y', title: 'ambient piano' });
     const id = done.body[0].id;
     await until(() => lib.get(id)?.status === 'done');
     await fs.access(path.join(tracksDir, `${id}.wav`));
-    expect((await request(app).delete(`/api/tracks/${id}`)).status).toBe(200);
+    expect((await writeRequest(app).delete(`/api/tracks/${id}`)).status).toBe(200);
     await expect(fs.access(path.join(tracksDir, `${id}.wav`))).rejects.toThrow();
   });
 
@@ -179,34 +190,34 @@ describe('app', () => {
 
   it('uses the given title when present, random otherwise', async () => {
     const { app } = await setup();
-    expect((await request(app).post('/api/generate').send({ prompt: 'x', title: '  Pine Morning ' })).body[0].title).toBe('Pine Morning');
-    expect((await request(app).post('/api/generate').send({ prompt: 'x' })).body[0].title).toMatch(/^[A-Z][A-Za-z&' ]+$/);
+    expect((await writeRequest(app).post('/api/generate').send({ prompt: 'x', title: '  Pine Morning ' })).body[0].title).toBe('Pine Morning');
+    expect((await writeRequest(app).post('/api/generate').send({ prompt: 'x' })).body[0].title).toMatch(/^[A-Z][A-Za-z&' ]+$/);
   });
 
   it('works with a path-prefixed upstream base URL and trailing slash', async () => {
     const { app, lib } = await setup({ prefix: '/upstream/music3' }, null, { musicApi: null, apiKey: null });
-    const put = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/` });
+    const put = await writeRequest(app).put('/api/settings').send({ musicApi: `${fake!.url}/` });
     expect(put.status).toBe(200);
     expect(put.body.musicApi).toBe(fake!.url);
     expect((await request(app).get('/api/health')).body.upstreamReachable).toBe(true);
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x' });
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.map((r) => r.path)).toEqual(expect.arrayContaining(['/v1/models', '/v1/audio/speech']));
   });
 
   it('templates: create, upsert by name, list, delete', async () => {
     const { app } = await setup();
-    expect((await request(app).post('/api/templates').send({ prompt: 'x' })).status).toBe(400);
-    expect((await request(app).post('/api/templates').send({ name: 'Lo-fi' })).status).toBe(400);
-    const c = await request(app).post('/api/templates').send({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '', duration: 90 });
+    expect((await writeRequest(app).post('/api/templates').send({ prompt: 'x' })).status).toBe(400);
+    expect((await writeRequest(app).post('/api/templates').send({ name: 'Lo-fi' })).status).toBe(400);
+    const c = await writeRequest(app).post('/api/templates').send({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '', duration: 90 });
     expect(c.status).toBe(201);
     expect(c.body).toMatchObject({ name: 'Lo-fi', prompt: 'lo-fi hip hop', lyrics: '[Instrumental]', duration: 90, format: 'wav' });
-    const u = await request(app).post('/api/templates').send({ name: 'lo-fi', prompt: 'lo-fi v2' });
+    const u = await writeRequest(app).post('/api/templates').send({ name: 'lo-fi', prompt: 'lo-fi v2' });
     expect(u.status).toBe(200);
     expect(u.body.id).toBe(c.body.id);
     expect((await request(app).get('/api/templates')).body).toHaveLength(1);
-    expect((await request(app).delete(`/api/templates/${c.body.id}`)).status).toBe(200);
-    expect((await request(app).delete(`/api/templates/${c.body.id}`)).status).toBe(404);
+    expect((await writeRequest(app).delete(`/api/templates/${c.body.id}`)).status).toBe(200);
+    expect((await writeRequest(app).delete(`/api/templates/${c.body.id}`)).status).toBe(404);
   });
 
   it('settings: env-locked values cannot be changed and the key is never returned', async () => {
@@ -214,27 +225,27 @@ describe('app', () => {
     const s = await request(app).get('/api/settings');
     expect(s.body).toMatchObject({ apiKeySet: true, locked: { musicApi: true, apiKey: true }, source: { musicApi: 'env', apiKey: 'env' } });
     expect(JSON.stringify(s.body)).not.toContain('"k"');
-    expect((await request(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(400);
+    expect((await writeRequest(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(400);
   });
 
   it('settings: stored values apply, persist, and re-point the upstream client', async () => {
     const { app, dir, upstream } = await setup({}, null, { musicApi: null, apiKey: null });
     expect((await request(app).get('/api/settings')).body).toMatchObject({ musicApi: 'http://127.0.0.1:7862', apiKeySet: false, source: { musicApi: 'default', apiKey: 'none' } });
-    expect((await request(app).put('/api/settings').send({ musicApi: 'not a url' })).status).toBe(400);
-    const put = await request(app).put('/api/settings').send({ musicApi: `${fake!.url}/`, apiKey: 'sekrit' });
+    expect((await writeRequest(app).put('/api/settings').send({ musicApi: 'not a url' })).status).toBe(400);
+    const put = await writeRequest(app).put('/api/settings').send({ musicApi: `${fake!.url}/`, apiKey: 'sekrit' });
     expect(put.body).toMatchObject({ musicApi: fake!.url, apiKeySet: true, source: { musicApi: 'settings', apiKey: 'settings' } });
     expect(upstream.url).toBe(fake!.url);
     expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toEqual({ musicApi: fake!.url, apiKey: 'sekrit', compat: false, llmApi: null, llmApiKey: null, llmModel: null });
     await request(app).get('/api/health');
     expect(fake!.requests.at(-1)?.auth).toBe('Bearer sekrit');
-    expect((await request(app).put('/api/settings').send({ apiKey: '' })).body.apiKeySet).toBe(false);
+    expect((await writeRequest(app).put('/api/settings').send({ apiKey: '' })).body.apiKeySet).toBe(false);
   });
 
   it('settings/test probes a candidate URL without saving', async () => {
     const { app } = await setup({}, null, { musicApi: null, apiKey: null });
-    const ok = await request(app).post('/api/settings/test').send({ musicApi: fake!.url });
+    const ok = await writeRequest(app).post('/api/settings/test').send({ musicApi: fake!.url });
     expect(ok.body).toMatchObject({ ok: true, musicApi: fake!.url, health: { ready: true, models: ['minimax_ttm'] } });
-    const bad = await request(app).post('/api/settings/test').send({ musicApi: 'http://127.0.0.1:1' });
+    const bad = await writeRequest(app).post('/api/settings/test').send({ musicApi: 'http://127.0.0.1:1' });
     expect(bad.body.ok).toBe(false);
     expect((await request(app).get('/api/settings')).body.musicApi).toBe('http://127.0.0.1:7862');
   });
@@ -242,8 +253,8 @@ describe('app', () => {
   it('settings: LLM fields persist, gate health.enhance, and never return the key', async () => {
     const { app, dir } = await setup();
     expect((await request(app).get('/api/health')).body.enhance).toBe(false);
-    expect((await request(app).put('/api/settings').send({ llmApi: 'ftp://x' })).status).toBe(400);
-    const put = await request(app).put('/api/settings').send({ llmApi: 'http://llm.test/v1/', llmApiKey: 'llm-sekrit', llmModel: 'gpt-x' });
+    expect((await writeRequest(app).put('/api/settings').send({ llmApi: 'ftp://x' })).status).toBe(400);
+    const put = await writeRequest(app).put('/api/settings').send({ llmApi: 'http://llm.test/v1/', llmApiKey: 'llm-sekrit', llmModel: 'gpt-x' });
     expect(put.body).toMatchObject({
       llmApi: 'http://llm.test/v1', llmModel: 'gpt-x', llmKeySet: true,
       source: { llmApi: 'settings', llmApiKey: 'settings', llmModel: 'settings' },
@@ -252,23 +263,23 @@ describe('app', () => {
     expect(JSON.stringify(put.body)).not.toContain('llm-sekrit');
     expect((await request(app).get('/api/health')).body.enhance).toBe(true);
     expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toMatchObject({ llmApi: 'http://llm.test/v1', llmApiKey: 'llm-sekrit', llmModel: 'gpt-x' });
-    expect((await request(app).put('/api/settings').send({ llmModel: '' })).body.llmModel).toBeNull();
+    expect((await writeRequest(app).put('/api/settings').send({ llmModel: '' })).body.llmModel).toBeNull();
     expect((await request(app).get('/api/health')).body.enhance).toBe(false);
     await fake!.close(); fake = null;
-    await request(app).put('/api/settings').send({ llmModel: 'gpt-x' });
+    await writeRequest(app).put('/api/settings').send({ llmModel: 'gpt-x' });
     expect((await request(app).get('/api/health')).body).toMatchObject({ upstreamReachable: false, enhance: true });
   });
 
   it('enhance: 400 without a prompt, 409 until an LLM is configured, then returns the caption', async () => {
     const { app, dir } = await setup();
-    expect((await request(app).post('/api/enhance').send({ prompt: ' ' })).status).toBe(400);
-    const off = await request(app).post('/api/enhance').send({ prompt: 'sad piano' });
+    expect((await writeRequest(app).post('/api/enhance').send({ prompt: ' ' })).status).toBe(400);
+    const off = await writeRequest(app).post('/api/enhance').send({ prompt: 'sad piano' });
     expect(off.status).toBe(409);
     expect(off.body.error).toMatch(/not configured/);
     await seedSkill(dir);
     llm = await startFakeLlm([{ content: '### Global Metadata\nslow piano' }]);
-    await request(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
-    const on = await request(app).post('/api/enhance').send({ prompt: 'sad piano', lyrics: '[Verse]\nx', instrumental: false });
+    await writeRequest(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
+    const on = await writeRequest(app).post('/api/enhance').send({ prompt: 'sad piano', lyrics: '[Verse]\nx', instrumental: false });
     expect(on.status).toBe(200);
     expect(on.body).toEqual({ prompt: '### Global Metadata\nslow piano' });
     expect(llm.requests[0].body.messages[1].content).toBe('Caption: sad piano\n\nLyrics:\n[Verse]\nx');
@@ -277,13 +288,13 @@ describe('app', () => {
 
   it('lyrics: 400 without a prompt, 409 until an LLM is configured, then returns lyrics', async () => {
     const { app } = await setup();
-    expect((await request(app).post('/api/lyrics').send({ prompt: '' })).status).toBe(400);
-    const off = await request(app).post('/api/lyrics').send({ prompt: 'night drive', duration: 30 });
+    expect((await writeRequest(app).post('/api/lyrics').send({ prompt: '' })).status).toBe(400);
+    const off = await writeRequest(app).post('/api/lyrics').send({ prompt: 'night drive', duration: 30 });
     expect(off.status).toBe(409);
     expect(off.body.error).toMatch(/not configured/);
     llm = await startFakeLlm([{ content: '[Verse]\nNeon' }]);
-    await request(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
-    const on = await request(app).post('/api/lyrics').send({ prompt: 'night drive', duration: 30 });
+    await writeRequest(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
+    const on = await writeRequest(app).post('/api/lyrics').send({ prompt: 'night drive', duration: 30 });
     expect(on.status).toBe(200);
     expect(on.body).toEqual({ lyrics: '[Verse]\nNeon' });
     expect(llm.requests[0].body.messages[1].content).toContain('Target length: 30 s');
@@ -293,17 +304,17 @@ describe('app', () => {
     const { app, dir } = await setup();
     await seedSkill(dir);
     llm = await startFakeLlm([{ status: 500 }]);
-    await request(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
-    const res = await request(app).post('/api/enhance').send({ prompt: 'sad piano' });
+    await writeRequest(app).put('/api/settings').send({ llmApi: llm.url, llmModel: 'm' });
+    const res = await writeRequest(app).post('/api/enhance').send({ prompt: 'sad piano' });
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/LLM error 500/);
   });
 
   it('settings: a rejected PUT changes nothing, even fields that validated', async () => {
     const { app, dir } = await setup();
-    expect((await request(app).put('/api/settings').send({ llmApi: 'http://ok.test/v1', llmModel: 5 })).status).toBe(400);
+    expect((await writeRequest(app).put('/api/settings').send({ llmApi: 'http://ok.test/v1', llmModel: 5 })).status).toBe(400);
     expect((await request(app).get('/api/settings')).body.llmApi).toBeNull();
-    await request(app).put('/api/settings').send({ compat: true });
+    await writeRequest(app).put('/api/settings').send({ compat: true });
     expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toMatchObject({ compat: true, llmApi: null });
   });
 
@@ -312,15 +323,15 @@ describe('app', () => {
     const s = await request(app).get('/api/settings');
     expect(s.body).toMatchObject({ llmApi: 'http://env-llm/v1', llmModel: 'm', llmKeySet: true, locked: { llmApi: true, llmApiKey: true, llmModel: true }, source: { llmApi: 'env', llmApiKey: 'env', llmModel: 'env' } });
     expect(JSON.stringify(s.body)).not.toContain('envk');
-    expect((await request(app).put('/api/settings').send({ llmModel: 'other' })).status).toBe(400);
-    expect((await request(app).put('/api/settings').send({ llmApiKey: 'x' })).status).toBe(400);
+    expect((await writeRequest(app).put('/api/settings').send({ llmModel: 'other' })).status).toBe(400);
+    expect((await writeRequest(app).put('/api/settings').send({ llmApiKey: 'x' })).status).toBe(400);
   });
 
   it('streams when advertised: real stage/progress/renderedSeconds, file appears early, valid WAV at the end', async () => {
     const { app, lib, tracksDir } = await setup({ stream: { windows: 4, secondsPerWindow: 0.1, windowMs: 40 } });
     const h = await request(app).get('/api/health');
     expect(h.body.capabilities).toEqual(['stream']);
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', duration: 10, stream: true });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x', duration: 10, stream: true });
     const id = res.body[0].id as string;
     await until(() => lib.get(id)?.stage === 'semantic');
     await until(() => (lib.get(id)?.renderedSeconds ?? 0) > 0);
@@ -340,7 +351,7 @@ describe('app', () => {
 
   it('without the per-track stream flag: progress is still real over SSE (stream_audio:false), no early audio, valid WAV', async () => {
     const { app, lib, tracksDir } = await setup({ stream: { windows: 3, secondsPerWindow: 0.1, windowMs: 40 } });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x' });
     const id = res.body[0].id as string;
     await until(() => lib.get(id)?.stage === 'denoise');
     expect(lib.get(id)?.renderedSeconds).toBeNull();
@@ -357,7 +368,7 @@ describe('app', () => {
 
   it('never sends stream:true to servers that do not advertise it', async () => {
     const { app, lib } = await setup({ loading: false });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x', stream: true });
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
     expect(lib.get(res.body[0].id)?.renderedSeconds).toBeNull();
@@ -365,14 +376,14 @@ describe('app', () => {
 
   it('compat mode ignores /health and never streams, even when the server advertises it', async () => {
     const { app, lib } = await setup({ stream: { windows: 3, windowMs: 40 } }, null, { musicApi: null, apiKey: null });
-    await request(app).put('/api/settings').send({ musicApi: fake!.url });
+    await writeRequest(app).put('/api/settings').send({ musicApi: fake!.url });
     expect((await request(app).get('/api/health')).body).toMatchObject({ ready: true, capabilities: ['stream'] });
-    const put = await request(app).put('/api/settings').send({ compat: true });
+    const put = await writeRequest(app).put('/api/settings').send({ compat: true });
     expect(put.status).toBe(200);
     expect(put.body.compat).toBe(true);
     fake!.requests.length = 0;
     expect((await request(app).get('/api/health')).body).toMatchObject({ ready: true, capabilities: [] });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x', stream: true });
     await until(() => lib.get(res.body[0].id)?.status === 'done');
     expect(fake!.requests.map((r) => r.path)).not.toContain('/health');
     expect(fake!.requests.find((r) => r.path === '/v1/audio/speech')?.body).toMatchObject({ stream: false });
@@ -381,17 +392,17 @@ describe('app', () => {
 
   it('cancel mid-stream aborts upstream and marks cancelled', async () => {
     const { app, lib } = await setup({ stream: { windows: 50, windowMs: 40 } });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x', stream: true });
     const id = res.body[0].id as string;
     await until(() => (lib.get(id)?.renderedSeconds ?? 0) > 0);
-    await request(app).delete(`/api/tracks/${id}`);
+    await writeRequest(app).delete(`/api/tracks/${id}`);
     await until(() => fake!.requests.find((r) => r.path === '/v1/audio/speech')?.aborted === true);
     expect(lib.get(id)).toBeUndefined();
   });
 
   it('audio route serves the partial WAV of a running track with a patched header and honours Range', async () => {
     const { app, lib } = await setup({ stream: { windows: 40, secondsPerWindow: 0.1, windowMs: 40 } });
-    const res = await request(app).post('/api/generate').send({ prompt: 'x', stream: true });
+    const res = await writeRequest(app).post('/api/generate').send({ prompt: 'x', stream: true });
     const id = res.body[0].id as string;
     await until(() => (lib.get(id)?.renderedSeconds ?? 0) >= 0.2);
     const bin = (r: request.Response, cb: (err: Error | null, body: Buffer) => void) => { const c: Buffer[] = []; r.on('data', (d: Buffer) => c.push(d)); r.on('end', () => cb(null, Buffer.concat(c))); };
@@ -407,6 +418,85 @@ describe('app', () => {
     expect(part.status).toBe(206);
     expect((part.body as Buffer).length).toBe(12);
     expect(part.headers['content-range']).toMatch(/^bytes 40-51\/\d+$/);
-    await request(app).delete(`/api/tracks/${id}`);
+    await writeRequest(app).delete(`/api/tracks/${id}`);
+  });
+
+  it('requires credentials for API reads when UI_TOKEN is set', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    expect((await request(app).get('/api/library')).status).toBe(401);
+    expect((await request(app).get('/api/future-route')).status).toBe(401);
+  });
+
+  it('requires credentials for API writes when UI_TOKEN is set', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    const res = await request(app).post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x' });
+    expect(res.status).toBe(401);
+  });
+
+  it('accepts the configured UI_TOKEN as a bearer credential', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    const res = await request(app).get('/api/library').set('Authorization', 'Bearer test-ui-token');
+    expect(res.status).toBe(200);
+  });
+
+  it('sets a strict HttpOnly auth cookie that grants access without a request header', async () => {
+    const logs: string[] = [];
+    const { app, lib } = await setup({ renderMs: 30 }, null, null, 'test-ui-token', (msg) => logs.push(msg));
+    const auth = await request(app).post('/api/auth').set('X-Requested-With', 'XMLHttpRequest').send({ token: 'test-ui-token' });
+    expect(auth.status).toBe(204);
+    const cookie = auth.headers['set-cookie']?.[0];
+    expect(cookie).toBeDefined();
+    expect(cookie).not.toContain('test-ui-token');
+    expect(cookie).toContain('; HttpOnly');
+    expect(cookie).toContain('; SameSite=Strict');
+    expect(cookie).toContain('; Path=/api');
+    expect(cookie).not.toContain('; Secure');
+    expect(JSON.stringify(auth.body)).not.toContain('test-ui-token');
+
+    const res = await request(app).get('/api/library').set('Cookie', cookie!.split(';', 1)[0]);
+    expect(res.status).toBe(200);
+
+    const created = await request(app).post('/api/generate').set('Authorization', 'Bearer test-ui-token').send({ prompt: 'x' });
+    const id = created.body[0].id as string;
+    await until(() => lib.get(id)?.status === 'done');
+    const audio = await request(app).get(`/api/tracks/${id}/audio`).set('Cookie', cookie!.split(';', 1)[0]);
+    expect(audio.status).toBe(200);
+    expect(audio.headers['content-type']).toMatch(/^audio\/wav/);
+    const download = await request(app).get(`/api/tracks/${id}/audio?download`).set('Cookie', cookie!.split(';', 1)[0]);
+    expect(download.headers['content-disposition']).toMatch(/^attachment; filename=".+\.wav"$/);
+    expect(logs.join('\n')).not.toContain('test-ui-token');
+  });
+
+  it('rejects an incorrect auth token without setting a cookie', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    const res = await request(app).post('/api/auth').set('X-Requested-With', 'XMLHttpRequest').send({ token: 'wrong-token' });
+    expect(res.status).toBe(401);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain('wrong-token');
+  });
+
+  it('keeps GET /api/ping public without probing the upstream', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    const res = await request(app).get('/api/ping');
+    expect(res.status).toBe(200);
+    expect(fake!.requests).toEqual([]);
+  });
+
+  it('rejects a write without either protection header when UI_TOKEN is unset', async () => {
+    const { app } = await setup();
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    expect(res.status).toBe(403);
+  });
+
+  it('applies the write guard even when UI_TOKEN is set', async () => {
+    const { app } = await setup({}, null, null, 'test-ui-token');
+    const res = await request(app).post('/api/generate').send({ prompt: 'x' });
+    expect(res.status).toBe(403);
+  });
+
+  it('warns at startup when UI_TOKEN is unset', async () => {
+    const logs: string[] = [];
+    await setup({}, null, null, null, (msg) => logs.push(msg));
+    expect(logs.join('\n')).toMatch(/unauthenticated/i);
   });
 });

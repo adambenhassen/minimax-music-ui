@@ -2,7 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { JsonStore, Library } from './library.js';
 import { extFor, RenderQueue, UpstreamClient, UpstreamError } from './upstream.js';
 import { normalizeEnhance, normalizeGenerate, normalizeLyrics, ValidationError } from './validate.js';
@@ -30,6 +30,27 @@ export interface AppDeps {
 }
 
 const MIME: Record<string, string> = { wav: 'audio/wav' };
+const UI_SESSION_COOKIE = 'ui_session';
+
+function constantTimeMatch(candidate: string, expected: string): boolean {
+  const candidateDigest = createHash('sha256').update(candidate).digest();
+  const expectedDigest = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(candidateDigest, expectedDigest);
+}
+
+function cookieValue(req: Request, name: string): string | null {
+  const prefix = `${name}=`;
+  const entry = (req.headers.cookie ?? '').split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix));
+  return entry ? entry.slice(prefix.length) : null;
+}
+
+function hasUiCredential(req: Request, token: string, sessionCookie: string): boolean {
+  const authorization = req.get('authorization') ?? '';
+  const bearer = /^Bearer\s+(.+)$/i.exec(authorization)?.[1];
+  if (bearer && constantTimeMatch(bearer, token)) return true;
+  const cookie = cookieValue(req, UI_SESSION_COOKIE);
+  return cookie !== null && constantTimeMatch(cookie, sessionCookie);
+}
 
 /** A WAV still being written: sizes in its header are 0 until done, so patch them to the current length on the way out. */
 async function servePartialWav(req: Request, res: Response, abs: string, type: string): Promise<void> {
@@ -62,7 +83,34 @@ export function createApp(deps: AppDeps) {
   const { library, templates, settings, upstream, queue, tracksDir } = deps;
   const log = deps.log ?? ((m: string) => console.log(`[app] ${m}`));
   const app = express();
+  const uiToken = process.env.UI_TOKEN || null;
+  const sessionCookie = uiToken ? createHmac('sha256', uiToken).update('minimax-music-ui-session').digest('base64url') : null;
+  if (!uiToken) log('WARNING: UI_TOKEN is unset; the UI server is unauthenticated');
+
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) return next();
+    const hasProtectionHeader = req.headers.authorization !== undefined || req.headers['x-requested-with'] !== undefined;
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !hasProtectionHeader) {
+      return res.status(403).json({ error: 'state-changing API requests require Authorization or X-Requested-With' });
+    }
+    if (!uiToken) return next();
+    const exempt = (req.method === 'GET' && req.path === '/api/ping') || (req.method === 'POST' && req.path === '/api/auth');
+    if (!exempt && !hasUiCredential(req, uiToken, sessionCookie!)) return res.status(401).json({ error: 'unauthorized' });
+    return next();
+  });
+
   app.use(express.json({ limit: '1mb' }));
+  app.get('/api/ping', (_req, res) => res.status(200).end());
+  app.post('/api/auth', (req, res) => {
+    if (!uiToken || !sessionCookie) return res.status(404).end();
+    const candidate = typeof req.body?.token === 'string' ? req.body.token : '';
+    if (!constantTimeMatch(candidate, uiToken)) return res.status(401).end();
+    const attributes = [`${UI_SESSION_COOKIE}=${sessionCookie}`, 'HttpOnly', 'SameSite=Strict', 'Path=/api'];
+    if (req.secure) attributes.push('Secure');
+    res.setHeader('Set-Cookie', attributes.join('; '));
+    return res.status(204).end();
+  });
+
   if (deps.demo) app.use(demoRouter(library, tracksDir, deps.demo));
 
   app.get('/api/health', async (_req, res) => {

@@ -16,7 +16,7 @@ const seedTrack = (id: string, file: string): Track => ({
   createdAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:30.000Z',
 });
 
-async function setup() {
+async function setup(uiToken: string | null = null) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'demo-'));
   const tracksDir = path.join(dir, 'tracks');
   await fs.mkdir(tracksDir);
@@ -30,7 +30,12 @@ async function setup() {
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
   await templates.load();
   const queue = new RenderQueue(lib, upstream, tracksDir, () => {}, 20);
+  const previousUiToken = process.env.UI_TOKEN;
+  if (uiToken === null) delete process.env.UI_TOKEN;
+  else process.env.UI_TOKEN = uiToken;
   const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo: { renderMs: 120, tickMs: 20 } });
+  if (previousUiToken === undefined) delete process.env.UI_TOKEN;
+  else process.env.UI_TOKEN = previousUiToken;
   return { app, lib };
 }
 
@@ -49,23 +54,32 @@ describe('demo mode', () => {
     expect(h.body).toMatchObject({ demo: true, upstreamReachable: true, ready: true, capabilities: [], enhance: false });
   });
 
+  it('requires UI_TOKEN for demo API reads while leaving ping public', async () => {
+    const { app } = await setup('test-ui-token');
+    expect((await request(app).get('/api/health')).status).toBe(401);
+    const health = await request(app).get('/api/health').set('Authorization', 'Bearer test-ui-token');
+    expect(health.status).toBe(200);
+    expect(health.body.demo).toBe(true);
+    expect((await request(app).get('/api/ping')).status).toBe(200);
+  });
+
   it('refuses writes to seed tracks, settings and templates', async () => {
     const { app, lib } = await setup();
-    expect((await request(app).delete('/api/tracks/s1')).status).toBe(403);
+    expect((await request(app).delete('/api/tracks/s1').set('X-Requested-With', 'XMLHttpRequest')).status).toBe(403);
     expect(lib.get('s1')).toBeDefined();
-    expect((await request(app).put('/api/settings').send({ musicApi: 'http://x:1' })).status).toBe(403);
-    expect((await request(app).post('/api/enhance').send({ prompt: 'x' })).status).toBe(403);
-    expect((await request(app).post('/api/lyrics').send({ prompt: 'x' })).status).toBe(403);
-    expect((await request(app).post('/api/settings/test').send({})).status).toBe(403);
-    expect((await request(app).post('/api/templates').send({ name: 'n', prompt: 'p' })).status).toBe(403);
-    expect((await request(app).delete('/api/templates/x')).status).toBe(403);
+    expect((await request(app).put('/api/settings').set('X-Requested-With', 'XMLHttpRequest').send({ musicApi: 'http://x:1' })).status).toBe(403);
+    expect((await request(app).post('/api/enhance').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x' })).status).toBe(403);
+    expect((await request(app).post('/api/lyrics').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x' })).status).toBe(403);
+    expect((await request(app).post('/api/settings/test').set('X-Requested-With', 'XMLHttpRequest').send({})).status).toBe(403);
+    expect((await request(app).post('/api/templates').set('X-Requested-With', 'XMLHttpRequest').send({ name: 'n', prompt: 'p' })).status).toBe(403);
+    expect((await request(app).delete('/api/templates/x').set('X-Requested-With', 'XMLHttpRequest')).status).toBe(403);
   });
 
   it('simulates a render per visitor and hands out a seed file as the result', async () => {
     const { app, lib } = await setup();
     const agent = request.agent(app);
     const other = request.agent(app);
-    const res = await agent.post('/api/generate').send({ prompt: 'lofi', duration: 30, takes: 2, seed: 9 });
+    const res = await agent.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'lofi', duration: 30, takes: 2, seed: 9 });
     expect(res.status).toBe(201);
     expect(res.body).toHaveLength(2);
     expect(res.body[0]).toMatchObject({ status: 'queued', seed: 9 });
@@ -88,16 +102,16 @@ describe('demo mode', () => {
     // other visitors cannot see or fetch it
     expect((await other.get(`/api/tracks/${id}/audio`)).status).toBe(404);
     // the visitor can delete their own simulated track
-    expect((await agent.delete(`/api/tracks/${id}`)).status).toBe(200);
+    expect((await agent.delete(`/api/tracks/${id}`).set('X-Requested-With', 'XMLHttpRequest')).status).toBe(200);
     expect((await agent.get('/api/library')).body.map((t: Track) => t.id)).toEqual([res.body[1].id, 's1']);
   });
 
   it('cancelling a queued simulated track removes it', async () => {
     const { app } = await setup();
     const agent = request.agent(app);
-    const res = await agent.post('/api/generate').send({ prompt: 'x', duration: 60, takes: 2 });
+    const res = await agent.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'x', duration: 60, takes: 2 });
     const second = res.body[1].id as string;
-    expect((await agent.delete(`/api/tracks/${second}`)).status).toBe(200);
+    expect((await agent.delete(`/api/tracks/${second}`).set('X-Requested-With', 'XMLHttpRequest')).status).toBe(200);
     expect((await agent.get('/api/library')).body.map((t: Track) => t.id)).toEqual([res.body[0].id, 's1']);
   });
 });

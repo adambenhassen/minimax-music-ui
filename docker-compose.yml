@@ -9,7 +9,8 @@ services:
       - ./data:/data
     environment:
       # Optional. When set, these lock the corresponding fields in Settings.
-      # Leave unset to configure the inference server from the UI instead.
       MUSIC_API: ${MUSIC_API:-}
       MUSIC_API_KEY: ${MUSIC_API_KEY:-}
+      # Optional. Use a random value of at least 32 characters to require API auth.
+      UI_TOKEN: ${UI_TOKEN:-}
     restart: unless-stopped

@@ -32,5 +32,5 @@ USER node
 VOLUME ["/data"]
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD wget -qO- http://127.0.0.1:8787/api/library >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1:8787/api/ping >/dev/null || exit 1
 CMD ["node", "server/dist/index.js"]
