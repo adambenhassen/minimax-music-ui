@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -7,8 +7,9 @@ import { JsonStore, Library } from '../src/library.js';
 import type { Template, Track } from '../src/types.js';
 import { RenderQueue, UpstreamClient } from '../src/upstream.js';
 import { createApp } from '../src/app.js';
-import { SettingsStore } from '../src/settings.js';
+import { DEFAULT_MUSIC_API, SettingsStore, type EnvOverrides } from '../src/settings.js';
 import { SkillFiles } from '../src/enhance.js';
+import type { DemoOptions } from '../src/demo.js';
 
 const seedTrack = (id: string, file: string): Track => ({
   id, groupId: id, takeIndex: 0, title: `Seed ${id}`, prompt: 'seed', lyrics: '[Instrumental]', duration: 10, seed: 1, format: 'wav',
@@ -16,7 +17,11 @@ const seedTrack = (id: string, file: string): Track => ({
   createdAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:30.000Z',
 });
 
-async function setup(uiToken: string | null = null) {
+async function setup(
+  demo: DemoOptions = { renderMs: 120, tickMs: 20 },
+  env: EnvOverrides = { musicApi: null, apiKey: null },
+  uiToken: string | null = null,
+) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'demo-'));
   const tracksDir = path.join(dir, 'tracks');
   await fs.mkdir(tracksDir);
@@ -24,7 +29,7 @@ async function setup(uiToken: string | null = null) {
   const lib = new Library(path.join(dir, 'library.json'));
   await lib.load();
   await lib.add(seedTrack('s1', 'a.wav'));
-  const settings = new SettingsStore(path.join(dir, 'settings.json'), { musicApi: null, apiKey: null });
+  const settings = new SettingsStore(path.join(dir, 'settings.json'), env);
   await settings.load();
   const upstream = new UpstreamClient('http://127.0.0.1:1');
   const templates = new JsonStore<Template>(path.join(dir, 'templates.json'));
@@ -33,11 +38,13 @@ async function setup(uiToken: string | null = null) {
   const previousUiToken = process.env.UI_TOKEN;
   if (uiToken === null) delete process.env.UI_TOKEN;
   else process.env.UI_TOKEN = uiToken;
-  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo: { renderMs: 120, tickMs: 20 } });
+  const app = createApp({ library: lib, templates, settings, upstream, queue, tracksDir, skill: new SkillFiles(path.join(dir, 'skill-cache'), 'http://127.0.0.1:1'), log: () => {}, demo });
   if (previousUiToken === undefined) delete process.env.UI_TOKEN;
   else process.env.UI_TOKEN = previousUiToken;
   return { app, lib };
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 const until = async (cond: () => Promise<boolean>, ms = 4000) => {
   const t0 = Date.now();
@@ -55,12 +62,173 @@ describe('demo mode', () => {
   });
 
   it('requires UI_TOKEN for demo API reads while leaving ping public', async () => {
-    const { app } = await setup('test-ui-token');
+    const { app } = await setup(undefined, undefined, 'test-ui-token');
     expect((await request(app).get('/api/health')).status).toBe(401);
     const health = await request(app).get('/api/health').set('Authorization', 'Bearer test-ui-token');
     expect(health.status).toBe(200);
     expect(health.body.demo).toBe(true);
     expect((await request(app).get('/api/ping')).status).toBe(200);
+  });
+
+  it('serves read-only showcase requests without creating sessions or cookies', async () => {
+    const { app } = await setup({ renderMs: 5000, tickMs: 10, maxSessions: 2 });
+    const visitor = request.agent(app);
+    const laterVisitor = request.agent(app);
+    const visitorTrack = (await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'keep this session' })).body[0] as Track;
+    const health = await request(app).get('/api/health');
+    const library = await request(app).get('/api/library');
+    const audio = await request(app).get('/api/tracks/s1/audio');
+
+    expect(health.status).toBe(200);
+    expect(library.body.map((t: Track) => t.id)).toEqual(['s1']);
+    expect(audio.status).toBe(200);
+    expect(audio.body.toString()).toBe('RIFFxxxxWAVEseed-a');
+    for (const response of [health, library, audio]) expect(response.headers['set-cookie']).toBeUndefined();
+
+    const laterTrack = (await laterVisitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'second visitor' })).body[0] as Track;
+    const retained = await visitor.get('/api/library');
+    expect(retained.body.map((t: Track) => t.id)).toContain(visitorTrack.id);
+    expect(retained.headers['set-cookie']).toBeUndefined();
+    await visitor.delete(`/api/tracks/${visitorTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await laterVisitor.delete(`/api/tracks/${laterTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  it('does not adopt unknown client session ids when generating', async () => {
+    const { app } = await setup();
+    const attackerSid = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    const generated = await request(app).post('/api/generate').set('Cookie', `demo_sid=${attackerSid}`).set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'fresh session' });
+    const cookie = generated.headers['set-cookie']?.[0] as string | undefined;
+    const freshSid = /demo_sid=([^;]+)/.exec(cookie ?? '')?.[1];
+
+    expect(generated.status).toBe(201);
+    expect(freshSid).toBeTruthy();
+    expect(freshSid).not.toBe(attackerSid);
+    const unknownRead = await request(app).get('/api/library').set('Cookie', `demo_sid=${attackerSid}`);
+    expect(unknownRead.body.map((t: Track) => t.id)).toEqual(['s1']);
+    expect(unknownRead.headers['set-cookie']).toBeUndefined();
+    await request(app).delete(`/api/tracks/${generated.body[0].id}`).set('Cookie', `demo_sid=${freshSid}`).set('X-Requested-With', 'XMLHttpRequest');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  it.each([
+    { field: 'prompt', body: { prompt: 'x'.repeat(2001) } },
+    { field: 'lyrics', body: { prompt: 'valid prompt', lyrics: 'x'.repeat(10_001) } },
+  ])('rejects oversized $field without allocating a session or cookie', async ({ body }) => {
+    const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1 });
+    const visitor = request.agent(app);
+    const track = (await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'existing session' })).body[0] as Track;
+    const oversized = await request(app).post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send(body);
+    const cookie = oversized.headers['set-cookie']?.[0] as string | undefined;
+
+    if (oversized.status === 201 && cookie) {
+      await request(app).delete(`/api/tracks/${oversized.body[0].id}`).set('Cookie', cookie).set('X-Requested-With', 'XMLHttpRequest');
+    }
+    const retainedLibrary = await visitor.get('/api/library');
+    await visitor.delete(`/api/tracks/${track.id}`).set('X-Requested-With', 'XMLHttpRequest');
+
+    expect(oversized.status).toBe(413);
+    expect(oversized.headers['set-cookie']).toBeUndefined();
+    expect(retainedLibrary.body.map((t: Track) => t.id)).toContain(track.id);
+  });
+
+  it('bounds aggregate generated text per visitor', async () => {
+    const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1, maxTracksPerSession: 20 });
+    const visitor = request.agent(app);
+    const responses = [];
+    for (let i = 0; i < 20; i++) {
+      const prefix = String(i);
+      responses.push(await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({
+        prompt: `${prefix}${'p'.repeat(2_000 - prefix.length)}`,
+        lyrics: `${prefix}${'l'.repeat(10_000 - prefix.length)}`,
+      }));
+    }
+    const library = await visitor.get('/api/library');
+    const generated = library.body.filter((t: Track) => t.id !== 's1') as Track[];
+    for (const track of generated) await visitor.delete(`/api/tracks/${track.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    const replacement = await visitor.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'replacement'.padEnd(2_000, 'p'), lyrics: 'replacement'.padEnd(10_000, 'l') });
+    if (replacement.status === 201) await visitor.delete(`/api/tracks/${replacement.body[0].id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(responses.map((response) => response.status)).toEqual([201, ...Array(19).fill(429)]);
+    expect(generated.map((track) => track.id)).toEqual([responses[0].body[0].id]);
+    expect(replacement.status).toBe(201);
+  });
+
+  it('returns a canned settings view with all settings locked', async () => {
+    const { app } = await setup({ renderMs: 120, tickMs: 20 }, {
+      musicApi: 'https://private.example/music', apiKey: 'host-music-secret',
+      llmApi: 'https://private.example/llm', llmApiKey: 'host-llm-secret', llmModel: 'host-model',
+    });
+    const response = await request(app).get('/api/settings');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      musicApi: DEFAULT_MUSIC_API, apiKeySet: false, compat: false,
+      llmApi: null, llmModel: null, llmKeySet: false,
+      source: { musicApi: 'default', apiKey: 'none', llmApi: 'none', llmApiKey: 'none', llmModel: 'none' },
+      locked: { musicApi: true, apiKey: true, llmApi: true, llmApiKey: true, llmModel: true },
+    });
+    expect(Object.values(response.body.locked).every(Boolean)).toBe(true);
+    expect(JSON.stringify(response.body)).not.toContain('private.example');
+    expect(JSON.stringify(response.body)).not.toContain('host-music-secret');
+    expect(JSON.stringify(response.body)).not.toContain('host-llm-secret');
+    expect(JSON.stringify(response.body)).not.toContain('host-model');
+  });
+
+  it('blocks API routes outside the demo allowlist by default', async () => {
+    const { app } = await setup();
+    for (const response of [
+      await request(app).get('/api/templates'),
+      await request(app).get('/api/future-secret'),
+    ]) {
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({ error: 'This is a read-only demo — changes are not saved.' });
+    }
+  });
+
+  it('evicts the least recently used session and stops its active timer', async () => {
+    const { app } = await setup({ renderMs: 5000, tickMs: 10, maxSessions: 2 });
+    const clearInterval = vi.spyOn(globalThis, 'clearInterval');
+    const oldest = request.agent(app);
+    const lru = request.agent(app);
+    const replacement = request.agent(app);
+    const oldestTrack = (await oldest.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'oldest' })).body[0] as Track;
+    const lruTrack = (await lru.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'least recently used' })).body[0] as Track;
+    await until(async () => (await lru.get('/api/library')).body.find((t: Track) => t.id === lruTrack.id)?.status === 'running');
+    await oldest.get('/api/library');
+    expect(clearInterval).not.toHaveBeenCalled();
+
+    const replacementTrack = (await replacement.post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: 'replacement' })).body[0] as Track;
+    expect((await oldest.get('/api/library')).body.map((t: Track) => t.id)).toContain(oldestTrack.id);
+    const evicted = await lru.get('/api/library');
+    expect(evicted.body.map((t: Track) => t.id)).toEqual(['s1']);
+    expect(evicted.headers['set-cookie']).toBeUndefined();
+    expect(clearInterval).toHaveBeenCalled();
+
+    await oldest.delete(`/api/tracks/${oldestTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await replacement.delete(`/api/tracks/${replacementTrack.id}`).set('X-Requested-With', 'XMLHttpRequest');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  it('does not pump a session after it has been evicted', async () => {
+    const { app } = await setup({ renderMs: 60_000, tickMs: 10, maxSessions: 1 });
+    const started = vi.spyOn(globalThis, 'setInterval');
+    const cleared = vi.spyOn(globalThis, 'clearInterval');
+    try {
+      const responses = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+        request(app).post('/api/generate').set('X-Requested-With', 'XMLHttpRequest').send({ prompt: `concurrent ${i}` })));
+      expect(responses.every((response) => response.status === 201)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const active = started.mock.results
+        .filter((result): result is typeof result & { type: 'return' } => result.type === 'return')
+        .map((result) => result.value)
+        .filter((timer) => !cleared.mock.calls.some(([stopped]) => stopped === timer));
+      expect(active).toHaveLength(1);
+    } finally {
+      for (const result of started.mock.results) if (result.type === 'return') globalThis.clearInterval(result.value);
+    }
   });
 
   it('refuses writes to seed tracks, settings and templates', async () => {
