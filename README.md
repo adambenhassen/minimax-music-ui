@@ -132,6 +132,10 @@ The inference server address is resolved in this order:
 
 When `UI_TOKEN` is unset, the server logs that the UI is unauthenticated. Non-GET/HEAD API requests also require an `Authorization` or `X-Requested-With` header to block cross-site writes; the web client sends `X-Requested-With`. During development, the Vite proxy adds the configured `UI_TOKEN` to safe reads and writes carrying `X-Requested-With`.
 
+## One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/Minimax%20Music%20UI/)
+
 ## Development
 
 ```bash
